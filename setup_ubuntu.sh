@@ -73,10 +73,14 @@ done < <(cat << "EOF"
     xclip
     vlc
     caffeine
+    slack-desktop
     python-wstool
+    python3-wstool
     python-pip
+    python3-pip
     software-properties-common
     apt-transport-https
+    net-tools
 EOF
 )
 
@@ -114,10 +118,11 @@ fi
 
 # install python stuff
 echo -e "\n${CYAN}Install python related stuff... ${NC}"
-pip install colored
+python3 -m pip install colored
+python3 -m pip install matplotlib
 
 #echo -e "${CYAN}Installing gitcheck"
-# pip install git+https://github.com/xuningy/gitcheck.git
+python3 -m pip install git+https://github.com/xuningy/gitcheck.git
 
 
 
@@ -182,13 +187,15 @@ if [[ "$(fc-list | grep -i SourceSansPro)" == "" ]]; then
 
     gsettings set org.gnome.desktop.interface document-font-name 'Source Sans Pro Regular 11'
     gsettings set org.gnome.desktop.interface font-name 'Source Sans Pro Regular 10'
+    gsettings set org.gnome.nautilus.desktop font 'Source Sans Pro Regular 10'
     gsettings set org.gnome.desktop.wm.preferences titlebar-font 'Source Sans Pro Regular 11'
+
     echo -e "${LTBLUE}Source Serif/Code/Sans Pro ${BLUE}successfully installed, gnome interface set to Source Sans Pro ${NC}"
 else
     echo -e "${LTBLUE}Source Serif/Code/Sans Pro ${BLUE}already installed ${NC}"
 fi
 
-#set keyboard delay and repeat rate on terminal startup.
+# set keyboard delay and repeat rate on terminal startup.
 if grep -q "xset r rate" ~/.bash_aliases 2>/dev/null | grep -q '^i'; then
   echo -e "${BLUE}Set keyboard delay and repeat rates in bash_aliases${NC}"
   echo '# set keyboard delay and repeat rate to 200 and 60' >> ~/.bash_aliases
