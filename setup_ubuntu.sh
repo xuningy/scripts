@@ -24,7 +24,7 @@ LTPURPLE='\033[1;35m'
 LTCYAN='\033[1;36m'
 WHITE='\033[1;37m'
 NC='\033[0m' # No Color
-echo -e "Colortest ${RED}RED ${GREEN} GREEN ${ORANGE} ORANGE ${BLUE} BLUE ${PURPLE} PURPLE ${CYAN} CYAN ${LTGRAY}  LTGRAY ${DKGRAY} DARKGRAY ${LTRED}LTRED ${LTGREEN} LTGREEN ${YELLOW} YELLOW ${LTBLUE} LTBLUE ${LTPURPLE} LTPURPLE${LTCYAN} LTCYAN ${WHITE} WHITE \n"
+echo -e "Colortest ${RED}RED ${GREEN} GREEN ${ORANGE} ORANGE ${BLUE} BLUE ${PURPLE} PURPLE ${CYAN} CYAN ${LTGRAY}  LTGRAY ${DKGRAY} DARKGRAY ${LTRED}LTRED ${LTGREEN} LTGREEN ${YELLOW} YELLOW ${LTBLUE} LTBLUE ${LTPURPLE} LTPURPLE${LTCYAN} LTCYAN ${WHITE} WHITE \n COLORTEST COMPLETE. CHECK COLORS ARE OK."
 
 # some functions
 
@@ -74,9 +74,7 @@ done < <(cat << "EOF"
     vlc
     caffeine
     slack-desktop
-    python-wstool
     python3-wstool
-    python-pip
     python3-pip
     software-properties-common
     apt-transport-https
@@ -195,6 +193,13 @@ else
     echo -e "${LTBLUE}Source Serif/Code/Sans Pro ${BLUE}already installed ${NC}"
 fi
 
+# Set dock style and size
+echo -e "${BLUE}Set dock to be permanently fixed on the bottom, icon size 40 ${NC}"
+gsettings set org.gnome.shell.extensions.dash-to-dock dash-max-icon-size 40
+gsettings set org.gnome.shell.extensions.dash-to-dock dock-fixed true
+gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
+
+
 # set keyboard delay and repeat rate on terminal startup.
 if grep -q "xset r rate" ~/.bash_aliases 2>/dev/null | grep -q '^i'; then
   echo -e "${BLUE}Set keyboard delay and repeat rates in bash_aliases${NC}"
@@ -202,10 +207,11 @@ if grep -q "xset r rate" ~/.bash_aliases 2>/dev/null | grep -q '^i'; then
   echo 'xset r rate 200 60' >> ~/.bash_aliases
 fi
 
+echo -e "${BLUE}Note: Any additional style elements can be set using dconf-editor or programmatically using gsettings.${NC}"
 
 # ------------------------------------------------------------------------------
 # generate git key etc
-echo -e "${CYAN}Setting up git related stuff ${NC}"
+echo -e "${CYAN}Setting up git global user email and name (gmail) ${NC}"
 ssh-keygen -t rsa -C "xuningy@gmail.com" -N '' -f ~/.ssh/id_rsa <<<y >/dev/null 2>&1
 xclip -sel clip < ~/.ssh/id_rsa.pub
 
