@@ -67,21 +67,21 @@ versions() {
 }
 
 # ROS2 related shortcuts
-ros_version() {
+ros-version() {
     echo -e "${LTCYAN} ROS-related env paths:${NC}"
     printenv | grep -i ROS
     echo -e "${LTCYAN} rosversion -d ${NC}"
     rosversion -d
 }
 
-ros2_local() {
+ros2-local() {
     source /opt/ros/foxy/setup.bash
-    ros2_domain $1
+    ros2-domain $1
     export ROS_LOCALHOST_ONLY=1
     echo "ROS2 set to localhost only."
 }
 
-ros2_domain() {
+ros2-domain() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
         echo -e "Usage: ros2_domain N\n where N is a number between 0 to 101. This sets the ROS_DOMAIN_ID to N. For more info, see: https://docs.ros.org/en/foxy/Concepts/About-Domain-ID.html"
         return 
@@ -96,7 +96,7 @@ ros2_domain() {
     echo -e "${LTCYAN}Set ROS_DOMAIN_ID to: ${CYAN}"$ROS_DOMAIN_ID"${NC}"
 }
 
-ros2_check_deps() {
+ros2-check-deps() {
     # Inside the ROS2 workspace folder
     rosdep install -i --from-path src --rosdistro foxy -y
     # should return All required rosdps installed successfully
@@ -133,13 +133,13 @@ workon() {
         echo -e "${LTCYAN}Setting up workspace: ${CYAN}$1${NC}"
         cd $HOME/$1  # replace this with cd <workspace folder>
         echo -e "${LTCYAN}Checking dependencies are built... ${NC}"
-        ros2_check_deps 
+        ros2-check-deps 
         source install/setup.bash 
     fi
 
 }
 
-wifi_connect() {
+wifi-connect() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
         echo -e "Usage: ${LTCYAN}wifi_connect <WIFI_SSID>  ${NC}"
         return 
