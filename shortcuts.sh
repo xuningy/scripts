@@ -102,6 +102,12 @@ ros2-check-deps() {
     # should return All required rosdps installed successfully
 }
 
+ros2-tfview() {
+    # Generates a TF Tree in frames.pdf and displays it after its been constructed
+    source-ros2
+    ros2 run tf2_tools view_frames.py && evince frames.pdf
+}
+
 cb() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
         echo -e "Usage: ${LTCYAN}cb <PACKAGES>[OPTIONAL] ... ${NC}\n   Runs colcon build --symlink-install (saves from rebuilding every time a python script is tweaked) --packages-select <PACKAGES> which only builds the package(s) you specified."
@@ -155,4 +161,42 @@ wifi-connect() {
         fi
         sleep 2
     done
+}
+
+git-init() {
+    if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
+        echo -e "Usage: ${LTCYAN}git-init${NC}"
+        return
+    fi
+
+    if [ -d ".git" ]; then
+        echo -e "${CYAN}Git already initialized! Exiting.${NC}"
+        return
+    fi
+
+    PACKAGE_NAME=$(basename "$PWD")
+    echo -e "${CYAN}Initializing git for ${LTCYAN}$PACKAGE_NAME${NC}"
+
+    # git init
+    git init
+
+    # Check if a .gitignore already exist. If not, create a .gitignore file.
+    if [ ! -f ".gitignore" ]; then
+        echo "__pycache__" > .gitignore
+        echo "*.pyc" >> .gitignore
+        echo ".vscode/*" >> .gitignore
+
+        echo -e "${CYAN}Added .gitignore${NC}"
+    fi
+
+    # Create a readme if the file doesn't already exist. If not, create a README.md file.
+    if ! find . -iname "readme.md" -type f -print -quit | grep -q .; then
+
+        echo "# $PACKAGE_NAME"  > README.md
+        echo "Author: Xuning Yang" >> README.md
+
+        echo -e "${CYAN}Added README.md${NC}"
+    fi
+
+    return
 }
