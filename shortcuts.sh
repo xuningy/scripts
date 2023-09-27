@@ -32,41 +32,84 @@ bye() {
     cd
 }
 
+# generate ssh-key
+generate-ssh() {
+    if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
+        echo -e "${CYAN} Generate new ssh key.\nUsage:\n\t generate-ssh${NC}"
+        return
+    fi
+    echo -e "${CYAN}Setting up git ssh key ${NC}"
+    ssh-keygen -t rsa -C "xuningy@gmail.com" -N '' -f ~/.ssh/id_rsa <<<y >/dev/null 2>&1
+    xclip -sel clip < ~/.ssh/id_rsa.pub
+    echo -e "${CYAN}New ssh key generated for ${LTCYAN}xuningy@gmail.com${CYAN} at ${LTCYAN}id_rsa.pub${CYAN}: ${NC}"
+    cat ~/.ssh/id_rsa.pub
+    echo -e "${CYAN} Key has been copied to clipboard. ${NC}"
+
+    git config --global user.email "xuningy@gmail.com"
+    git config --global user.name "Xuning Yang"
+}
+
+install-pytorch-116() {
+    # Super simple script for installing pytorch in a given conda env for cuda 11.6. first run `versions` to get the cuda version.
+    pip install torch==1.13.1+cu116 torchvision==0.14.1+cu116 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
+}
+
 cuda-versions() {
     printf "==============================================================================\n"
-    echo -e "${LTCYAN}CUDA Toolkit Version (nvcc --version) [Needs to be lower than Driver version]${NC}" 
+    echo -e "${LTCYAN}CUDA Toolkit Version (nvcc --version) [Needs to be lower than Driver version]${NC}"
     nvcc --version
     echo " "
 
     printf "==============================================================================\n"
-    echo -e "${LTCYAN}Cuda GPU Driver Version (nvidia-smi):${NC}" 
+    echo -e "${LTCYAN}Cuda GPU Driver Version (nvidia-smi):${NC}"
     nvidia-smi
     echo " "
 }
 
 glibc-version() {
     printf "==============================================================================\n"
-    echo -e "${LTCYAN}GLIBC Version (ldd --version):${NC}" 
+    echo -e "${LTCYAN}GLIBC Version (ldd --version):${NC}"
     ldd --version | head -n1
     echo " "
 }
 
+pytorch-versions() {
+    python3 ~/scripts/collect_env.py
+}
+
 versions() {
-    cuda-versions 
+    cuda-versions
     glibc-version
 
     printf "========================================================\n"
-    echo -e "${LTCYAN}Python Version (python3 version):${NC}" 
+    echo -e "${LTCYAN}Python Version (python3 version):${NC}"
     python3 --version
     echo " "
 
     printf "========================================================\n"
-    echo -e "${LTCYAN}Git Version (git --version):${NC}" 
+    echo -e "${LTCYAN}Git Version (git --version):${NC}"
     git --version
+    echo " "
+
+    printf "========================================================\n"
+    echo -e "${LTCYAN}Running PyTorch's collect_env.py:${NC}"
+    pytorch-versions
     echo " "
 }
 
 # ROS2 related shortcuts
+
+source-ros2() {
+    echo -e "${CYAN}source /opt/ros/foxy/setup.bash${NC}"
+    source /opt/ros/foxy/setup.bash
+}
+
+source-ros() {
+    echo -e "${CYAN}source /opt/ros/noetic/setup.bash${NC}"
+    source /opt/ros/noetic/setup.bash
+}
+
+
 ros-version() {
     echo -e "${LTCYAN} ROS-related env paths:${NC}"
     printenv | grep -i ROS
@@ -84,8 +127,8 @@ ros2-local() {
 ros2-domain() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
         echo -e "Usage: ros2_domain N\n where N is a number between 0 to 101. This sets the ROS_DOMAIN_ID to N. For more info, see: https://docs.ros.org/en/foxy/Concepts/About-Domain-ID.html"
-        return 
-    fi 
+        return
+    fi
 
     if [[ -z "$1" ]]; then
         export ROS_DOMAIN_ID=0
@@ -102,20 +145,25 @@ ros2-check-deps() {
     # should return All required rosdps installed successfully
 }
 
-ros2-tfview() {
+ros2-view-frames() {
     # Generates a TF Tree in frames.pdf and displays it after its been constructed
     source-ros2
     ros2 run tf2_tools view_frames.py && evince frames.pdf
+}
+
+ros-view-frames() {
+    source-ros
+    rosrun tf2_tools view_frames.py && evince frames.pdf
 }
 
 cb() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
         echo -e "Usage: ${LTCYAN}cb <PACKAGES>[OPTIONAL] ... ${NC}\n   Runs colcon build --symlink-install (saves from rebuilding every time a python script is tweaked) --packages-select <PACKAGES> which only builds the package(s) you specified."
         echo -e " ${LTCYAN}cb <PACKAGES>[OPTIONAL] ... --packages-skip <PACKAGES_TO_SKIP>[OPTIONAL] ... ${NC}\n   Runs colcon build on specified packages and skips the specified packages. If no package is provided, then it builds everything except the skip packages."
-        return 
+        return
     fi
 
-    if [[ $1 = "--packages-skip" ]]; then 
+    if [[ $1 = "--packages-skip" ]]; then
         echo -e "${LTCYAN}Building all packages except ${@:2}: ${CYAN}colcon build --symlink-install $@${NC}"
         colcon build --symlink-install "$@"
     elif [ -n "$1" ]; then
@@ -130,7 +178,7 @@ cb() {
 workon() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
         echo -e "Usage: ${LTCYAN}workon <WORKSPACE_NAME> ${NC}"
-        return 
+        return
     fi
 
     if [[ -z "$1" ]]; then
@@ -139,8 +187,8 @@ workon() {
         echo -e "${LTCYAN}Setting up workspace: ${CYAN}$1${NC}"
         cd $HOME/$1  # replace this with cd <workspace folder>
         echo -e "${LTCYAN}Checking dependencies are built... ${NC}"
-        ros2-check-deps 
-        source install/setup.bash 
+        ros2-check-deps
+        source install/setup.bash
     fi
 
 }
@@ -148,16 +196,16 @@ workon() {
 wifi-connect() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
         echo -e "Usage: ${LTCYAN}wifi_connect <WIFI_SSID>  ${NC}"
-        return 
+        return
     fi
 
     echo -e "${CYAN}Attempting to connect to wifi network ${LTCYAN}$1${NC}"
 
-    # Connect to wifi networks until they come online 
+    # Connect to wifi networks until they come online
     while true; do
-        if nmcli dev wifi connect $1 | grep -q "successfully"; then 
+        if nmcli dev wifi connect $1 | grep -q "successfully"; then
             echo -e "${CYAN}Connected to ${LTCYAN}$1${CYAN} successfully${NC}"
-            break 
+            break
         fi
         sleep 2
     done
@@ -197,6 +245,11 @@ git-init() {
 
         echo -e "${CYAN}Added README.md${NC}"
     fi
+
+    # Set config for the package
+    git config user.email "xuningy@gmail.com"
+    git config user.name "Xuning Yang"
+    echo -e "${CYAN}Set user.name user.email to ${LTCYAN}Xuning Yang xuningy@gmail.com${NC}"
 
     return
 }

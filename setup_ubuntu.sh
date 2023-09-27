@@ -114,6 +114,17 @@ else
   alreadyInstalled "flux"
 fi
 
+# install sticky notes
+# https://launchpad.net/~umang/+archive/ubuntu/indicator-stickynotes
+if ! debianInstalled indicator-stickynotes; then
+  sudo apt-add-repository ppa:umang/indicator-stickynotes
+  sudo apt update
+  sudo apt install indicator-stickynotes -y
+  success "stickynotes"
+else
+  alreadyInstalled "stickynotes"
+fi
+
 # install python stuff
 echo -e "\n${CYAN}Install python related stuff... ${NC}"
 python3 -m pip install colored
