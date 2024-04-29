@@ -32,6 +32,10 @@ bye() {
     cd
 }
 
+open() {
+    nautilus --browser $@
+}
+
 # generate ssh-key
 generate-ssh() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
@@ -100,8 +104,8 @@ versions() {
 # ROS2 related shortcuts
 
 source-ros2() {
-    echo -e "${CYAN}source /opt/ros/foxy/setup.bash${NC}"
-    source /opt/ros/foxy/setup.bash
+    echo -e "${CYAN}source /opt/ros/humble/setup.bash${NC}"
+    source /opt/ros/humble/setup.bash
 }
 
 source-ros() {
@@ -118,7 +122,7 @@ ros-version() {
 }
 
 ros2-local() {
-    source /opt/ros/foxy/setup.bash
+    source /opt/ros/humble/setup.bash
     ros2-domain $1
     export ROS_LOCALHOST_ONLY=1
     echo "ROS2 set to localhost only."
@@ -126,7 +130,7 @@ ros2-local() {
 
 ros2-domain() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
-        echo -e "Usage: ros2_domain N\n where N is a number between 0 to 101. This sets the ROS_DOMAIN_ID to N. For more info, see: https://docs.ros.org/en/foxy/Concepts/About-Domain-ID.html"
+        echo -e "Usage: ros2_domain N\n where N is a number between 0 to 101. This sets the ROS_DOMAIN_ID to N. For more info, see: https://docs.ros.org/en/humble/Concepts/About-Domain-ID.html"
         return
     fi
 
@@ -141,7 +145,7 @@ ros2-domain() {
 
 ros2-check-deps() {
     # Inside the ROS2 workspace folder
-    rosdep install -i --from-path src --rosdistro foxy -y
+    rosdep install -i --from-path src --rosdistro humble -y
     # should return All required rosdps installed successfully
 }
 
@@ -211,6 +215,24 @@ wifi-connect() {
     done
 }
 
+spacemouse-status() {
+    echo -e "Please make sure your spacemouse is plugged into system. Checking..."
+    echo -e "If using wireless spacemouse, check 256f:c652 exists.\nlsusb:\n"
+    lsusb
+
+
+    # Check that udev rules are set up correctly
+    if test -f "/etc/udev/rules.d/99-spacemouse.rules" ; then
+        echo -e "\nFile /etc/udev/rules.d/99-spacemouse.rules found:\n"
+        cat "/etc/udev/rules.d/99-spacemouse.rules"
+        echo -e "\nPlease check that the above looks correct."
+    else
+        echo -e "\n[ERROR] You have not set up the appropriate spacemouse rule! Please add the following line:\n\t"
+        echo "SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"256f\", ATTRS{idProduct}==\"c652\", MODE=\"0666\", SYMLINK+=\"spacemouse\""
+        echo -e "to:       /etc/udev/rules.d/99-spacemouse.rules"
+    fi
+}
+
 git-init() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
         echo -e "Usage: ${LTCYAN}git-init${NC}"
@@ -230,9 +252,7 @@ git-init() {
 
     # Check if a .gitignore already exist. If not, create a .gitignore file.
     if [ ! -f ".gitignore" ]; then
-        echo "__pycache__" > .gitignore
-        echo "*.pyc" >> .gitignore
-        echo ".vscode/*" >> .gitignore
+        cp ${HOME}/scripts/gitignore_template.txt .gitignore
 
         echo -e "${CYAN}Added .gitignore${NC}"
     fi
@@ -251,5 +271,15 @@ git-init() {
     git config user.name "Xuning Yang"
     echo -e "${CYAN}Set user.name user.email to ${LTCYAN}Xuning Yang xuningy@gmail.com${NC}"
 
+    git config -l
+
     return
+}
+
+build-sphinx() {
+    sphinx-build -b html docs public
+}
+
+code-grep() {
+    grep -r --exclude-dir={public,docs,build,__pycache__,} "$1" .
 }

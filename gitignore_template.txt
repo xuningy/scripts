@@ -1,0 +1,22 @@
+__pycache__
+*.pyc
+.vscode/*
+*.egg-info/
+*.log
+*.hdf5
+*build/*
+build/*
+*.thumbs/
+*log/*
+*install/*
+install/*
+
+# Documentation
+docs/_build/
+docs/_source/
+docs/_api/*
+_build/
+public/*
+docs/doxygen/html/*
+docs/doxygen/xml/*
+*output/
