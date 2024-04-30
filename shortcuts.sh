@@ -20,6 +20,8 @@ LTCYAN='\033[1;36m'
 WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
+
+
 # End the current working session
 bye() {
 
@@ -101,101 +103,6 @@ versions() {
     echo " "
 }
 
-# ROS2 related shortcuts
-
-source-ros2() {
-    echo -e "${CYAN}source /opt/ros/humble/setup.bash${NC}"
-    source /opt/ros/humble/setup.bash
-}
-
-source-ros() {
-    echo -e "${CYAN}source /opt/ros/noetic/setup.bash${NC}"
-    source /opt/ros/noetic/setup.bash
-}
-
-
-ros-version() {
-    echo -e "${LTCYAN} ROS-related env paths:${NC}"
-    printenv | grep -i ROS
-    echo -e "${LTCYAN} rosversion -d ${NC}"
-    rosversion -d
-}
-
-ros2-local() {
-    source /opt/ros/humble/setup.bash
-    ros2-domain $1
-    export ROS_LOCALHOST_ONLY=1
-    echo "ROS2 set to localhost only."
-}
-
-ros2-domain() {
-    if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
-        echo -e "Usage: ros2_domain N\n where N is a number between 0 to 101. This sets the ROS_DOMAIN_ID to N. For more info, see: https://docs.ros.org/en/humble/Concepts/About-Domain-ID.html"
-        return
-    fi
-
-    if [[ -z "$1" ]]; then
-        export ROS_DOMAIN_ID=0
-    else
-        export ROS_DOMAIN_ID=$1
-    fi
-
-    echo -e "${LTCYAN}Set ROS_DOMAIN_ID to: ${CYAN}"$ROS_DOMAIN_ID"${NC}"
-}
-
-ros2-check-deps() {
-    # Inside the ROS2 workspace folder
-    rosdep install -i --from-path src --rosdistro humble -y
-    # should return All required rosdps installed successfully
-}
-
-ros2-view-frames() {
-    # Generates a TF Tree in frames.pdf and displays it after its been constructed
-    source-ros2
-    ros2 run tf2_tools view_frames.py && evince frames.pdf
-}
-
-ros-view-frames() {
-    source-ros
-    rosrun tf2_tools view_frames.py && evince frames.pdf
-}
-
-cb() {
-    if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
-        echo -e "Usage: ${LTCYAN}cb <PACKAGES>[OPTIONAL] ... ${NC}\n   Runs colcon build --symlink-install (saves from rebuilding every time a python script is tweaked) --packages-select <PACKAGES> which only builds the package(s) you specified."
-        echo -e " ${LTCYAN}cb <PACKAGES>[OPTIONAL] ... --packages-skip <PACKAGES_TO_SKIP>[OPTIONAL] ... ${NC}\n   Runs colcon build on specified packages and skips the specified packages. If no package is provided, then it builds everything except the skip packages."
-        return
-    fi
-
-    if [[ $1 = "--packages-skip" ]]; then
-        echo -e "${LTCYAN}Building all packages except ${@:2}: ${CYAN}colcon build --symlink-install $@${NC}"
-        colcon build --symlink-install "$@"
-    elif [ -n "$1" ]; then
-        echo -e "${LTCYAN}Building select packages $@: ${CYAN}colcon build --symlink-install --packages-select $@${NC}"
-        colcon build --symlink-install --packages-select "$@"
-    else
-        echo -e "${LTCYAN}Building all packages in workspace: ${CYAN}colcon build --symlink-install ${NC}"
-        colcon build --symlink-install
-    fi
-}
-
-workon() {
-    if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
-        echo -e "Usage: ${LTCYAN}workon <WORKSPACE_NAME> ${NC}"
-        return
-    fi
-
-    if [[ -z "$1" ]]; then
-        echo -e "${LTRED}No workspace name provided. Use: ${RED}workon <WORKSPACE_NAME> ${NC}"
-    else
-        echo -e "${LTCYAN}Setting up workspace: ${CYAN}$1${NC}"
-        cd $HOME/$1  # replace this with cd <workspace folder>
-        echo -e "${LTCYAN}Checking dependencies are built... ${NC}"
-        ros2-check-deps
-        source install/setup.bash
-    fi
-
-}
 
 wifi-connect() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
@@ -280,6 +187,9 @@ build-sphinx() {
     sphinx-build -b html docs public
 }
 
-code-grep() {
+grep-code-only() {
     grep -r --exclude-dir={public,docs,build,__pycache__,} "$1" .
 }
+
+
+source ~/scripts/ros2_shortcuts.sh
