@@ -3,6 +3,10 @@
 source-ros2() {
     echo -e "${CYAN}source /opt/ros/humble/setup.bash${NC}"
     source /opt/ros/humble/setup.bash
+
+    if [ $# -eq 1 ]; then
+        ros2-domain $1
+    fi
 }
 
 source-ros() {
@@ -103,7 +107,7 @@ ros2-new-package() {
         echo -e "${CYAN}Creating package: ros2 pkg create --build-type ament_python --node-name ${LTCYAN}$2 $1${NC}"
         ros2 pkg create --build-type ament_python --node-name $2 $1
     elif [ $# -eq 1 ]; then
-    echo -e "${CYAN}Creating package: ros2 pkg create --build-type ament_python ${LTCYAN}$1${NC}"
+        echo -e "${CYAN}Creating package: ros2 pkg create --build-type ament_python ${LTCYAN}$1${NC}"
         ros2 pkg create --build-type ament_python $1
     else
         echo -e "${CYAN} Usage: ${LTCYAN}ros2-new-package package_name node_name ${NC}"
