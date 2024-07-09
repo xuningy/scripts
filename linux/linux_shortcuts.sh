@@ -1,0 +1,5 @@
+
+open() {
+    nautilus --browser $@
+}
+

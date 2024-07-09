@@ -144,7 +144,7 @@ ros2-new-package() {
     # Update readme
     if [ -s "README.md" ]; then
         echo >> README.md
-        cat ~/scripts/ros2_generic_readme.md >> README.md
+        cat $BASH_SCRIPTS_DIR/linux/ros2_generic_readme.md >> README.md
         echo -e "${CYAN}Added generic readme text to README.md. ${NC}"
     fi
     echo -e "${LTCYAN}Created new package '$1' with node '$2'.${NC}"

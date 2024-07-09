@@ -3,24 +3,6 @@
 # A set of scripts for projects that I work on. run the following line to access these functions
 # echo "source ~/scripts/shortcuts.sh" >> ~/.bashrc
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-ORANGE='\033[0;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-LTGRAY='\033[0;37m'
-DKGRAY='\033[1;30m'
-LTRED='\033[1;31m'
-LTGREEN='\033[1;32m'
-YELLOW='\033[1;33m'
-LTBLUE='\033[1;34m'
-LTPURPLE='\033[1;35m'
-LTCYAN='\033[1;36m'
-WHITE='\033[1;37m'
-NC='\033[0m' # No Color
-
-
 
 # End the current working session
 bye() {
@@ -34,9 +16,6 @@ bye() {
     cd
 }
 
-open() {
-    nautilus --browser $@
-}
 
 # generate ssh-key
 generate-ssh() {
@@ -53,11 +32,6 @@ generate-ssh() {
 
     git config --global user.email "xuningy@gmail.com"
     git config --global user.name "Xuning Yang"
-}
-
-install-pytorch-116() {
-    # Super simple script for installing pytorch in a given conda env for cuda 11.6. first run `versions` to get the cuda version.
-    pip install torch==1.13.1+cu116 torchvision==0.14.1+cu116 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
 }
 
 cuda-versions() {
@@ -80,7 +54,7 @@ glibc-version() {
 }
 
 pytorch-versions() {
-    python3 ~/scripts/collect_env.py
+    python3 $BASH_SCRIPTS_DIR/common/collect_env.py
 }
 
 versions() {
@@ -122,24 +96,6 @@ wifi-connect() {
     done
 }
 
-spacemouse-status() {
-    echo -e "Please make sure your spacemouse is plugged into system. Checking..."
-    echo -e "If using wireless spacemouse, check 256f:c652 exists.\nlsusb:\n"
-    lsusb
-
-
-    # Check that udev rules are set up correctly
-    if test -f "/etc/udev/rules.d/99-spacemouse.rules" ; then
-        echo -e "\nFile /etc/udev/rules.d/99-spacemouse.rules found:\n"
-        cat "/etc/udev/rules.d/99-spacemouse.rules"
-        echo -e "\nPlease check that the above looks correct."
-    else
-        echo -e "\n[ERROR] You have not set up the appropriate spacemouse rule! Please add the following line:\n\t"
-        echo "SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"256f\", ATTRS{idProduct}==\"c652\", MODE=\"0666\", SYMLINK+=\"spacemouse\""
-        echo -e "to:       /etc/udev/rules.d/99-spacemouse.rules"
-    fi
-}
-
 git-init() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
         echo -e "Usage: ${LTCYAN}git-init${NC}"
@@ -159,7 +115,7 @@ git-init() {
 
     # Check if a .gitignore already exist. If not, create a .gitignore file.
     if [ ! -f ".gitignore" ]; then
-        cp ${HOME}/scripts/gitignore_template.txt .gitignore
+        cp $BASH_SCRIPTS_DIR/common/gitignore_template.txt .gitignore
 
         echo -e "${CYAN}Added .gitignore${NC}"
     fi
@@ -192,4 +148,3 @@ grep-code-only() {
 }
 
 
-source ~/scripts/ros2_shortcuts.sh
