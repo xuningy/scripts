@@ -1,10 +1,11 @@
 #!/bin/bash
 
 ffmpeg_crf() {
-    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then 
-        echo -e "Usage: $0 [filename_with_ext] [crf]"
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_crf [filename_with_ext] [crf]"
         echo -e "crf values range from 0 to 51. 0 is lossless, 18 is visually lossless, 23 is default, 51 is worst possible."
-    fi 
+        return
+    fi
     fullfile=$1
     crf=$2
 
@@ -17,9 +18,10 @@ ffmpeg_crf() {
 }
 
 ffmpeg_speed() {
-    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then 
-        echo -e "Usage: $0 [filename_with_ext] [speed]X"
-    fi 
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_speed [filename_with_ext] [speed]X"
+        return
+    fi
     fullfile=$1
     speed=$2
 
@@ -32,12 +34,12 @@ ffmpeg_speed() {
 }
 
 ffmpeg_gif_to_video() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_gif_to_video [pattern](e.g., rgb_%d.png) [start_number](OPTIONAL, 0 otherwise) [output_filename](OPTIONAL)"
+        return
+    fi
 
-    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then 
-        echo -e "Usage: $0 [pattern] [start_number](OPTIONAL, 0) [output_filename](OPTIONAL)"
-    fi 
-
-    pattern=$1 
+    pattern=$1
     start_number="${2:-0}" # Default to 0 if not provided
     default_output_filename=$(echo ${pattern} | cut -d'%' -f1)
     output_filename="${3:-$default_output_filename.mp4}"
