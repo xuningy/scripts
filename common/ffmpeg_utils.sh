@@ -33,6 +33,23 @@ ffmpeg_speed() {
     ffmpeg -i ${fullfile} -filter:v setpts=PTS/${speed} "${directory}/${filename}_${speed}X.${extension}"
 }
 
+ffmpeg_cut() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_cut [filename_with_ext] [start_time (s)] [duration (s)]"
+        return
+    fi
+    fullfile=$1
+    start_time=$2
+    duration=$3
+
+    filename=$(basename -- "$fullfile")
+    directory=$(dirname -- "$fullfile")
+    extension="${filename##*.}"
+    filename="${filename%.*}"
+
+    ffmpeg -ss ${start_time} -t ${duration} -i ${fullfile} "${directory}/${filename}_cut_${duration}s.${extension}"
+}
+
 ffmpeg_gif_to_video() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
         echo -e "Usage: ffmpeg_gif_to_video [pattern](e.g., rgb_%d.png) [start_number](OPTIONAL, 0 otherwise) [output_filename](OPTIONAL)"
