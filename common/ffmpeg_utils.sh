@@ -50,7 +50,7 @@ ffmpeg_cut() {
     ffmpeg -ss ${start_time} -t ${duration} -i ${fullfile} "${directory}/${filename}_cut_${duration}s.${extension}"
 }
 
-ffmpeg_gif_to_video() {
+ffmpeg_img_to_video() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
         echo -e "Usage: ffmpeg_gif_to_video [pattern](e.g., rgb_%d.png) [start_number](OPTIONAL, 0 otherwise) [output_filename](OPTIONAL)"
         return
@@ -66,6 +66,12 @@ ffmpeg_gif_to_video() {
 
 
 ffmpeg_all() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Compresses all video files in the dir that this command is run in using CRF 23, renamed to _compressed.mp4."
+        echo -e "Usage: ffmpeg_all --overwrite (OPTIONAL) --delete-original (OPTIONAL)"
+        return
+    fi
+
     # Define supported video extensions in a regex pattern
     supported_extensions="mp4|mkv|avi|mov"
     delete_original=false
@@ -97,10 +103,10 @@ ffmpeg_all() {
         if [[ -f "$file" && "$file" =~ \.($supported_extensions)$ && ! "$file" =~ compressed ]]; then
             original_size_hr=$(du -h "$file" | cut -f1)
             echo -e "${CYAN}Compressing file ${LTCYAN}$file ${LTCYAN}($original_size_hr)${NC}"
-            
+
             # Define the output filename
             output="${file%.*}_compressed.mp4"
-            
+
             # Compress the video using ffmpeg
             ffmpeg $ffmpeg_options -i "$file" -crf 23 "$output" -hide_banner -loglevel quiet
 
@@ -108,8 +114,8 @@ ffmpeg_all() {
             if [[ $? -eq 0 ]]; then
                 # Display the new file size
                 new_size_hr=$(du -h "$output" | cut -f1)
-                echo -e "${CYAN}...complete. ${LTCYAN}$output${CYAN} (${LTCYAN}$new_size_hr${CYAN})${NC}"    
-                
+                echo -e "${CYAN}...complete. ${LTCYAN}$output${CYAN} (${LTCYAN}$new_size_hr${CYAN})${NC}"
+
                 # Delete the original file if the flag was set
                 if $delete_original; then
                     echo -e "${LTRED}Deleting original: $file${NC}"
