@@ -69,39 +69,51 @@ ffmpeg_all() {
     # Define supported video extensions in a regex pattern
     supported_extensions="mp4|mkv|avi|mov"
     delete_original=false
-    overwrite=false 
+    overwrite=false
 
-    # Check if the --delete-original flag was provided
-    if [[ "$1" == "--delete-original" ]]; then
-        delete_original=true
+    # Parse command-line arguments
+    for arg in "$@"; do
+        case $arg in
+            --delete-original)
+                echo -e "${LTRED}WARNING: Original files will be deleted!${NC}"
+                delete_original=true
+                ;;
+            --overwrite)
+                overwrite=true
+                ;;
+        esac
+    done
+
+    # Set ffmpeg overwrite option based on the flag
+    if $overwrite; then
+        ffmpeg_options="-y"  # Overwrite the output file
+    else
+        ffmpeg_options="-n"  # Do not overwrite; skip existing files
     fi
 
     # Loop over each file in the directory
     for file in *; do
         # Check if the file has one of the supported extensions
         if [[ -f "$file" && "$file" =~ \.($supported_extensions)$ && ! "$file" =~ compressed ]]; then
-            original_size=$(du -b "$file" | cut -f1)
             original_size_hr=$(du -h "$file" | cut -f1)
-            echo -e "${CYAN}Compressing file ${LTCYAN}$file ${LTCYAN}($original_size_hr )${NC}"
+            echo -e "${CYAN}Compressing file ${LTCYAN}$file ${LTCYAN}($original_size_hr)${NC}"
             
             # Define the output filename
             output="${file%.*}_compressed.mp4"
             
             # Compress the video using ffmpeg
-            ffmpeg -i "$file" -vcodec libx265 -crf 18 "$output" -hide_banner -loglevel error
+            ffmpeg $ffmpeg_options -i "$file" -crf 23 "$output" -hide_banner -loglevel quiet
 
             # Check if the compression was successful
             if [[ $? -eq 0 ]]; then
                 # Display the new file size
-                new_size=$(du -b "$output" | cut -f1)
                 new_size_hr=$(du -h "$output" | cut -f1)
-                
-                echo -e "${CYAN}New size ${LTCYAN}$output${CYAN} (${LTCYAN}$new_size_hr${CYAN} )${NC}"    
+                echo -e "${CYAN}...complete. ${LTCYAN}$output${CYAN} (${LTCYAN}$new_size_hr${CYAN})${NC}"    
                 
                 # Delete the original file if the flag was set
                 if $delete_original; then
+                    echo -e "${LTRED}Deleting original: $file${NC}"
                     rm "$file"
-                    echo -e "${CYAN}Deleting original: $file${NC}"
                 fi
             fi
         fi
