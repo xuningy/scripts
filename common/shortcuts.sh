@@ -144,7 +144,7 @@ build-sphinx() {
 }
 
 grep-code-only() {
-    grep -r --exclude-dir={public,docs,build,__pycache__,} "$1" .
+    grep -r --exclude-dir={public,docs,build,__pycache__,output,*.egg-info,log,.git} "$1" .
 }
 
 
