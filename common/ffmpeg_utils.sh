@@ -63,3 +63,47 @@ ffmpeg_gif_to_video() {
 
     ffmpeg -framerate 30 -start_number ${start_number} -i ${pattern} -c:v libx264 -pix_fmt yuv420p ${output_filename}
 }
+
+
+ffmpeg_all() {
+    # Define supported video extensions in a regex pattern
+    supported_extensions="mp4|mkv|avi|mov"
+    delete_original=false
+    overwrite=false 
+
+    # Check if the --delete-original flag was provided
+    if [[ "$1" == "--delete-original" ]]; then
+        delete_original=true
+    fi
+
+    # Loop over each file in the directory
+    for file in *; do
+        # Check if the file has one of the supported extensions
+        if [[ -f "$file" && "$file" =~ \.($supported_extensions)$ && ! "$file" =~ compressed ]]; then
+            original_size=$(du -b "$file" | cut -f1)
+            original_size_hr=$(du -h "$file" | cut -f1)
+            echo -e "${CYAN}Compressing file ${LTCYAN}$file ${LTCYAN}($original_size_hr )${NC}"
+            
+            # Define the output filename
+            output="${file%.*}_compressed.mp4"
+            
+            # Compress the video using ffmpeg
+            ffmpeg -i "$file" -vcodec libx265 -crf 18 "$output" -hide_banner -loglevel error
+
+            # Check if the compression was successful
+            if [[ $? -eq 0 ]]; then
+                # Display the new file size
+                new_size=$(du -b "$output" | cut -f1)
+                new_size_hr=$(du -h "$output" | cut -f1)
+                
+                echo -e "${CYAN}New size ${LTCYAN}$output${CYAN} (${LTCYAN}$new_size_hr${CYAN} )${NC}"    
+                
+                # Delete the original file if the flag was set
+                if $delete_original; then
+                    rm "$file"
+                    echo -e "${CYAN}Deleting original: $file${NC}"
+                fi
+            fi
+        fi
+    done
+}
