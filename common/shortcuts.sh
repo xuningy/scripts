@@ -57,8 +57,34 @@ pytorch-versions() {
     python3 $BASH_SCRIPTS_DIR/common/collect_env.py
 }
 
+kernel-versions() {
+    printf "========================================================\n"
+    echo -e "${LTCYAN}Kernel version:${NC}"
+    uname -r
+
+    echo -e "${LTCYAN}List of all kernels:${NC}"
+    dpkg --list | grep linux-image
+}
+
+gcc-versions() {
+    printf "========================================================\n"
+    echo -e "${LTCYAN}GCC version:${NC}"
+    gcc --version
+    ls -al /usr/bin/gcc
+
+    echo -e "\n${LTCYAN}G++ version:${NC}"
+    g++ --version
+    ls -al /usr/bin/g++
+
+    echo -e "\n${LTCYAN}cc version:${NC}"
+    cc --version
+    ls -al /usr/bin/cc
+
+}
 versions() {
+    kernel-versions
     cuda-versions
+    gcc-versions
     glibc-version
 
     printf "========================================================\n"
@@ -146,5 +172,3 @@ build-sphinx() {
 grep-code-only() {
     grep -r --exclude-dir={public,docs,build,__pycache__,output,*.egg-info,log,.git} "$1" .
 }
-
-
