@@ -4,19 +4,19 @@ __pycache__
 *.egg-info/
 *.log
 *.hdf5
-*build/*
-build/*
+**/build/
 *.thumbs/
 *log/*
-*install/*
-install/*
+**/install/**
 
 # Documentation
-docs/_build/
-docs/_source/
-docs/_api/*
-_build/
+**/_source/
+**/_api/
+**/_build/
 public/*
 docs/doxygen/html/*
 docs/doxygen/xml/*
-*output/
+
+# Data
+**/data/
+**/output/
