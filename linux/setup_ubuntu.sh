@@ -82,17 +82,6 @@ done < <(cat << "EOF"
 EOF
 )
 
-# install atom
-if ! debianInstalled atom; then
-    installing "atom text editor"
-    wget -q https://packagecloud.io/AtomEditor/atom/gpgkey -O- | sudo apt-key add -
-    sudo add-apt-repository "deb [arch=amd64] https://packagecloud.io/AtomEditor/atom/any/ any main"
-    sudo apt install atom -y
-    success "atom text editor"
-else
-    alreadyInstalled "atom"
-fi
-
 # install autojump
 if ! debianInstalled autojump; then
     installing "autojump"
@@ -133,7 +122,15 @@ python3 -m pip install matplotlib
 #echo -e "${CYAN}Installing gitcheck"
 python3 -m pip install git+https://github.com/xuningy/gitcheck.git
 
-
+# install miniforge3
+installing "miniforge3"
+wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+bash Miniforge3.sh -b -p "${HOME}/conda"
+SHELL_CONFIG="$HOME/.bashrc"  # Adjust if using a different shell (e.g., .zshrc)
+echo "export PATH=\"$INSTALL_DIR/bin:\$PATH\"" >> $SHELL_CONFIG
+source $SHELL_CONFIG
+conda init
+success "miniforge3. restart terminal to use conda"
 
 #-------------------------------------------------------------------------------
 echo -e "\n${BLUE}Installing theme and fonts... ${NC}"
