@@ -7,6 +7,7 @@ restart-nomachine() {
     sudo /etc/NX/nxserver --status
     sudo /etc/NX/nxserver --restart
 }
+
 # Escape a string for sed (delimiters and special chars)
 escape_sed() {
   local string="$1"
@@ -111,4 +112,22 @@ EOF
   else
     echo "Operation canceled."
   fi
+}
+
+lf() {
+  # Outputs the latest file or dir
+  local latest=$(ls -t | head -n 1)
+  echo "$latest"
+}
+
+lf_file() {
+  # outputs the latest file
+  local latest=$(find . -maxdepth 1 -type f -printf "%T@ %p\n" | sort -nr | head -n1 | cut -d' ' -f2-)
+  echo "$latest"
+}
+
+lf_dir() {
+  # outputs the latest dir 
+  local latest=$(find . -maxdepth 1 -type d ! -name '.' -printf "%T@ %p\n" | sort -nr | head -n1 | cut -d' ' -f2-)
+  echo "$latest"
 }
