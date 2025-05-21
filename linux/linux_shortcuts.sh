@@ -127,7 +127,18 @@ lf_file() {
 }
 
 lf_dir() {
-  # outputs the latest dir 
+  # outputs the latest dir
   local latest=$(find . -maxdepth 1 -type d ! -name '.' -printf "%T@ %p\n" | sort -nr | head -n1 | cut -d' ' -f2-)
   echo "$latest"
+}
+
+ls_size() {
+  du -sh * | sort -hr
+}
+
+pwd_copy() {
+  local dir
+  dir=$(pwd)
+  echo "$dir" | xclip -selection clipboard
+  echo "Copied to clipboard: $dir"
 }

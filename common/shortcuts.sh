@@ -53,6 +53,23 @@ glibc-version() {
     echo " "
 }
 
+python-versions() {
+    echo -e "${CYAN}which python${NC}"
+    which python3
+    which python
+    echo -e "${CYAN}python3 --version${NC}"
+    python3 --version
+    echo -e "${CYAN}sys.path${NC}"
+    python3 -c "import sys; print('\n'.join(sys.path))"
+}
+
+numpy-versions() {
+    echo -e "${CYAN}numpy.__version__${NC}"
+    python3 -c "import numpy; print(numpy.__version__)"
+    echo -e "${CYAN}numpy.__file__${NC}"
+    python3 -c "import numpy; print(numpy.__file__)"
+}
+
 pytorch-versions() {
     python3 $BASH_SCRIPTS_DIR/common/collect_env.py
 }
@@ -89,7 +106,8 @@ versions() {
 
     printf "========================================================\n"
     echo -e "${LTCYAN}Python Version (python3 version):${NC}"
-    python3 --version
+    python-versions
+    numpy-versions
     echo " "
 
     printf "========================================================\n"
@@ -163,6 +181,90 @@ git-init() {
     git config -l
 
     return
+}
+
+git-delete() {
+    # Help text
+    if [[ $1 = "-h" || $1 = "--help" ]]; then
+        echo -e "Usage: ${LTCYAN}git-delete [remotename](OPTIONAL) <branchname>${NC}"
+        echo "Deletes the specified local and remote Git branch."
+        echo "If no remotename is given, only the local branch is deleted."
+        return
+    fi
+
+    # Argument parsing
+    if [[ $# -eq 1 ]]; then
+        remotename="origin"
+        branchname="$1"
+    elif [[ $# -eq 2 ]]; then
+        remotename="$1"
+        branchname="$2"
+    else
+        echo "Error: Invalid number of arguments"
+        echo -e "Usage: ${LTCYAN}git-delete [remotename] <branchname>${NC}"
+        return 1
+    fi
+
+    # Check existence
+    local_exists=false
+    remote_exists=false
+
+    if git show-ref --verify --quiet "refs/heads/$branchname"; then
+        local_exists=true
+    fi
+
+    if [[ -n $remotename ]]; then
+        if git ls-remote --exit-code --heads "$remotename" "$branchname" &>/dev/null; then
+            remote_exists=true
+        fi
+    fi
+
+    if [[ $local_exists == false && $remote_exists == false ]]; then
+        echo "Error: Branch '$branchname' not found locally or remotely."
+        return 1
+    fi
+
+    echo "You are about to delete the following:"
+    $local_exists && echo "- Local branch: $branchname"
+    $remote_exists && echo "- Remote branch: $remotename/$branchname"
+
+    echo "Proceed? [l = local only, r = remote only, y = both, N = cancel]"
+    read -p "[l/r/y/N]: " choice
+
+    case "$choice" in
+        [lL])
+            if [[ $local_exists == true ]]; then
+                git branch -d "$branchname" 2>/dev/null || git branch -D "$branchname"
+                echo "Local branch '$branchname' deleted."
+            else
+                echo "Local branch '$branchname' does not exist."
+            fi
+            ;;
+        [rR])
+            if [[ $remote_exists == true ]]; then
+                git push "$remotename" --delete "$branchname"
+                echo "Remote branch '$remotename/$branchname' deleted."
+            else
+                echo "Remote branch '$remotename/$branchname' does not exist."
+            fi
+            ;;
+        [yY])
+            if [[ $local_exists == true ]]; then
+                git branch -d "$branchname" 2>/dev/null || git branch -D "$branchname"
+                echo "Local branch '$branchname' deleted."
+            fi
+            if [[ $remote_exists == true ]]; then
+                git push "$remotename" --delete "$branchname"
+                echo "Remote branch '$remotename/$branchname' deleted."
+            fi
+            ;;
+        *)
+            echo "Aborted."
+            return
+            ;;
+    esac
+
+    echo "Branch deletion complete."
 }
 
 build-sphinx() {
