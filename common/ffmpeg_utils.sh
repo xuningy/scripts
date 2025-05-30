@@ -108,25 +108,6 @@ ffmpeg_video_to_gif() {
     -loop 0 "${directory}/${filename}_fps${fps}.gif"
 }
 
-ffmpeg_three_videos_side_by_side() {
-    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-        echo -e "Usage: ffmpeg_three_videos_side_by_side [file_1] [file_2] [file_3] [output_file_name_no_ext]"
-        return
-    fi
-
-    fullfile_1=$1
-    fullfile_2=$2
-    fullfile_3=$3
-    output_filename=$4
-
-    filename=$(basename -- "$fullfile_1")
-    directory=$(dirname -- "$fullfile_1")
-    extension="${filename##*.}"
-    filename="${filename%.*}"
-
-    ffmpeg -i ${fullfile_1} -i ${fullfile_2} -i ${fullfile_3} -filter_complex "[1:v][0:v]scale2ref=oh*mdar:ih[1v][0v];[2:v][0v]scale2ref=oh*mdar:ih[2v][0v];[0v][1v][2v]hstack=3,scale='2*trunc(iw/2)':'2*trunc(ih/2)'" "${directory}/${output_filename}.mp4"
-}
-
 ffmpeg_cut() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
         echo -e "Usage: ffmpeg_cut [filename_with_ext] [start_time (s)] [duration (s)] (optional, defaults to the end of video)"
@@ -164,6 +145,147 @@ ffmpeg_img_to_video() {
     ffmpeg -framerate 30 -start_number ${start_number} -i ${pattern} -c:v libx264 -pix_fmt yuv420p ${output_filename}
 }
 
+ffmpeg_stack_two_videos() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_stack_two_videos [file_1] [file_2] [output_file] [-d direction]"
+        echo -e "\nStack two videos either horizontally or vertically"
+        echo -e "\nOptions:"
+        echo -e "  -d    Direction to stack: h (horizontal) or v (vertical). Default: h"
+        echo -e "\nExamples:"
+        echo -e "  ffmpeg_stack_two_videos video1.mp4 video2.mp4 output.mp4 -d h  # Stack horizontally"
+        echo -e "  ffmpeg_stack_two_videos video1.mp4 video2.mp4 output.mp4 -d v  # Stack vertically"
+        echo -e "  ffmpeg_stack_two_videos video1.mp4 video2.mp4 output          # Stack horizontally, auto-adds .mp4"
+        return
+    fi
+
+    # Check if we have at least 3 arguments
+    if [ $# -lt 3 ]; then
+        echo "Error: Not enough arguments"
+        echo "Run 'ffmpeg_stack_two_videos --help' for usage information"
+        return 1
+    fi
+
+    fullfile_1=$1
+    fullfile_2=$2
+    output_path=$3
+    direction="h"  # Default to horizontal
+
+    # Parse optional arguments
+    shift 3
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -d)
+                direction="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unknown option: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    # Validate direction parameter
+    if [ "$direction" != "h" ] && [ "$direction" != "v" ]; then
+        echo "Error: direction must be either 'h' (horizontal) or 'v' (vertical)"
+        return 1
+    fi
+
+    # Handle output format
+    if [[ ! "$output_path" =~ \.[a-zA-Z0-9]+$ ]]; then
+        output_path="${output_path}.mp4"
+    fi
+
+    # Get directory of output path
+    output_directory=$(dirname -- "$output_path")
+
+    # Set the stack filter based on direction
+    if [ "$direction" == "h" ]; then
+        stack_filter="hstack=2"
+        scale_filter="[1:v][0:v]scale2ref=oh*mdar:ih[1v][0v]"
+    else
+        stack_filter="vstack=2"
+        scale_filter="[1:v][0:v]scale2ref=iw:iw/mdar[1v][0v]"
+    fi
+
+    # This filter complex will:
+    # 1. Scale the second video to match either height (for horizontal) or width (for vertical) of the first video
+    # 2. Stack them according to the specified direction
+    # 3. Ensure the final dimensions are even numbers (required for some codecs)
+    ffmpeg -i ${fullfile_1} -i ${fullfile_2} -filter_complex \
+        "${scale_filter};[0v][1v]${stack_filter},scale='2*trunc(iw/2)':'2*trunc(ih/2)'" \
+        "${output_path}"
+}
+
+ffmpeg_stack_three_videos() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_stack_three_videos [file_1] [file_2] [file_3] [output_file] [-d direction]"
+        echo -e "\nStack three videos either horizontally or vertically"
+        echo -e "\nOptions:"
+        echo -e "  -d    Direction to stack: h (horizontal) or v (vertical). Default: h"
+        echo -e "\nExamples:"
+        echo -e "  ffmpeg_stack_three_videos v1.mp4 v2.mp4 v3.mp4 output.mp4 -d h  # Stack horizontally"
+        echo -e "  ffmpeg_stack_three_videos v1.mp4 v2.mp4 v3.mp4 output.mp4 -d v  # Stack vertically"
+        echo -e "  ffmpeg_stack_three_videos v1.mp4 v2.mp4 v3.mp4 output          # Stack horizontally, auto-adds .mp4"
+        return
+    fi
+
+    # Check if we have at least 4 arguments
+    if [ $# -lt 4 ]; then
+        echo "Error: Not enough arguments"
+        echo "Run 'ffmpeg_stack_three_videos --help' for usage information"
+        return 1
+    fi
+
+    fullfile_1=$1
+    fullfile_2=$2
+    fullfile_3=$3
+    output_path=$4
+    direction="h"  # Default to horizontal
+
+    # Parse optional arguments
+    shift 4
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -d)
+                direction="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unknown option: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    # Validate direction parameter
+    if [ "$direction" != "h" ] && [ "$direction" != "v" ]; then
+        echo "Error: direction must be either 'h' (horizontal) or 'v' (vertical)"
+        return 1
+    fi
+
+    # Handle output format
+    if [[ ! "$output_path" =~ \.[a-zA-Z0-9]+$ ]]; then
+        output_path="${output_path}.mp4"
+    fi
+
+    # Set the stack filter based on direction
+    if [ "$direction" == "h" ]; then
+        stack_filter="hstack=3"
+        scale_filter="[1:v][0:v]scale2ref=oh*mdar:ih[1v][0v];[2:v][0:v]scale2ref=oh*mdar:ih[2v][0v]"
+    else
+        stack_filter="vstack=3"
+        scale_filter="[1:v][0:v]scale2ref=iw:iw/mdar[1v][0v];[2:v][0:v]scale2ref=iw:iw/mdar[2v][0v]"
+    fi
+
+    # This filter complex will:
+    # 1. Scale the second and third videos to match either height (for horizontal) or width (for vertical) of the first video
+    # 2. Stack them according to the specified direction
+    # 3. Ensure the final dimensions are even numbers (required for some codecs)
+    ffmpeg -i ${fullfile_1} -i ${fullfile_2} -i ${fullfile_3} -filter_complex \
+        "${scale_filter};[0v][1v][2v]${stack_filter},scale='2*trunc(iw/2)':'2*trunc(ih/2)'" \
+        "${output_path}"
+}
 
 ffmpeg_all() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
