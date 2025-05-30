@@ -202,10 +202,10 @@ ffmpeg_stack_two_videos() {
     # Set the stack filter based on direction
     if [ "$direction" == "h" ]; then
         stack_filter="hstack=2"
-        scale_filter="[1:v][0:v]scale2ref=oh*mdar:ih[1v][0v]"
+        scale_filter="[1:v][0:v]scale2ref=oh*mdar:ih[1v][ref1]"
     else
         stack_filter="vstack=2"
-        scale_filter="[1:v][0:v]scale2ref=iw:iw/mdar[1v][0v]"
+        scale_filter="[1:v][0:v]scale2ref=iw:iw/mdar[1v][ref1]"
     fi
 
     # This filter complex will:
@@ -213,7 +213,7 @@ ffmpeg_stack_two_videos() {
     # 2. Stack them according to the specified direction
     # 3. Ensure the final dimensions are even numbers (required for some codecs)
     ffmpeg -i ${fullfile_1} -i ${fullfile_2} -filter_complex \
-        "${scale_filter};[0v][1v]${stack_filter},scale='2*trunc(iw/2)':'2*trunc(ih/2)'" \
+        "${scale_filter};[ref1][1v]${stack_filter},scale='2*trunc(iw/2)':'2*trunc(ih/2)'" \
         "${output_path}"
 }
 
@@ -272,10 +272,10 @@ ffmpeg_stack_three_videos() {
     # Set the stack filter based on direction
     if [ "$direction" == "h" ]; then
         stack_filter="hstack=3"
-        scale_filter="[1:v][0:v]scale2ref=oh*mdar:ih[1v][0v];[2:v][0:v]scale2ref=oh*mdar:ih[2v][0v]"
+        scale_filter="[1:v][0:v]scale2ref=oh*mdar:ih[1v][ref1];[2:v][ref1]scale2ref=oh*mdar:ih[2v][ref2]"
     else
         stack_filter="vstack=3"
-        scale_filter="[1:v][0:v]scale2ref=iw:iw/mdar[1v][0v];[2:v][0:v]scale2ref=iw:iw/mdar[2v][0v]"
+        scale_filter="[1:v][0:v]scale2ref=iw:iw/mdar[1v][ref1];[2:v][ref1]scale2ref=iw:iw/mdar[2v][ref2]"
     fi
 
     # This filter complex will:
@@ -283,7 +283,7 @@ ffmpeg_stack_three_videos() {
     # 2. Stack them according to the specified direction
     # 3. Ensure the final dimensions are even numbers (required for some codecs)
     ffmpeg -i ${fullfile_1} -i ${fullfile_2} -i ${fullfile_3} -filter_complex \
-        "${scale_filter};[0v][1v][2v]${stack_filter},scale='2*trunc(iw/2)':'2*trunc(ih/2)'" \
+        "${scale_filter};[ref2][1v][2v]${stack_filter},scale='2*trunc(iw/2)':'2*trunc(ih/2)'" \
         "${output_path}"
 }
 
