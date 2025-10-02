@@ -108,6 +108,78 @@ ffmpeg_video_to_gif() {
     -loop 0 "${directory}/${filename}_fps${fps}.gif"
 }
 
+ffmpeg_img_to_gif() {
+  # Help message
+  if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    echo "Usage: ffmpeg_img_to_gif [-d duration] [-o output.gif] img1 img2 ..."
+    echo "Creates a GIF from a list of images using ffmpeg."
+    echo
+    echo "Options:"
+    echo "  -d, --duration    Duration per image (in seconds, default: 0.3)"
+    echo "  -o, --output      Output GIF filename (default: output.gif)"
+    echo "  -h, --help        Show this help message and exit"
+    echo
+    echo "Example:"
+    echo "  ffmpeg_img_to_gif -d 0.5 -o my.gif img1.png img2.jpg img3.png"
+    return 0
+  fi
+
+  # Default values
+  local duration=0.3
+  local output="output.gif"
+  local images=()
+
+  # Parse options
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -d|--duration)
+        duration="$2"
+        shift 2
+        ;;
+      -o|--output)
+        output="$2"
+        shift 2
+        ;;
+      *)
+        images+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  # Validate input
+  if [[ ${#images[@]} -eq 0 ]]; then
+    echo "No images specified."
+    echo "Try: ffmpeg_img_to_gif --help"
+    return 1
+  fi
+
+  # Build input file list for ffmpeg
+  local listfile
+  listfile=$(mktemp)
+  for img in "${images[@]}"; do
+    # Convert to absolute path to avoid path resolution issues
+    if [[ "$img" = /* ]]; then
+      # Already absolute path
+      abs_img="$img"
+    else
+      # Convert relative path to absolute
+      abs_img="$(cd "$(dirname "$img")" && pwd)/$(basename "$img")"
+    fi
+    echo "file '$abs_img'" >> "$listfile"
+    echo "duration $duration" >> "$listfile"
+  done
+
+  # The last image should not specify duration again (ffmpeg quirk)
+  sed -i '$d' "$listfile"
+
+  ffmpeg -f concat -safe 0 -i "$listfile" -vf "palettegen" -y /tmp/palette.png
+  ffmpeg -f concat -safe 0 -i "$listfile" -i /tmp/palette.png -lavfi "paletteuse" -y "$output"
+
+  rm -f "$listfile" /tmp/palette.png
+}
+
+
 ffmpeg_cut() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
         echo -e "Usage: ffmpeg_cut [filename_with_ext] [start_time (s)] [duration (s)] (optional, defaults to the end of video)"

@@ -5,6 +5,7 @@ source $BASH_SCRIPTS_DIR/common/settings.sh
 source $BASH_SCRIPTS_DIR/common/shortcuts.sh
 source $BASH_SCRIPTS_DIR/common/ffmpeg_utils.sh
 source $BASH_SCRIPTS_DIR/common/commands.sh
+source $BASH_SCRIPTS_DIR/common/git_utils.sh
 
 source_all() {
     # Source distribution specific files
@@ -17,7 +18,7 @@ source_all() {
             fi
         done
     else
-        echo "Usage: $0 [linux|osx](Optional)" 
+        echo "Usage: $0 [linux|osx](Optional)"
         echo "Sources distribution specific bash files. In your ~/.bash_profile or ~/.bashrc, include:"
         echo "  \$HOME/scripts/source_all.sh [linux|osx]"
         exit 1
