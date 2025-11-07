@@ -20,18 +20,36 @@ bye() {
 # generate ssh-key
 generate-ssh() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
-        echo -e "${CYAN} Generate new ssh key.\nUsage:\n\t generate-ssh${NC}"
+        echo -e "${CYAN} Generate new ssh key.\nUsage:\n\t generate-ssh [EMAIL] [FILENAME] [NAME]"
+        echo -e "\nArguments:"
+        echo -e "  EMAIL     Email address for the SSH key (default: xuningy@gmail.com)"
+        echo -e "  FILENAME  Name of the key file in ~/.ssh/ (default: id_rsa)"
+        echo -e "  NAME      Your name for git config (default: Xuning Yang)"
+        echo -e "\nExamples:"
+        echo -e "  generate-ssh"
+        echo -e "  generate-ssh myemail@example.com"
+        echo -e "  generate-ssh myemail@example.com id_ed25519"
+        echo -e "  generate-ssh myemail@example.com id_ed25519 \"John Doe\"${NC}"
         return
     fi
-    echo -e "${CYAN}Setting up git ssh key ${NC}"
-    ssh-keygen -t rsa -C "xuningy@gmail.com" -N '' -f ~/.ssh/id_rsa <<<y >/dev/null 2>&1
-    xclip -sel clip < ~/.ssh/id_rsa.pub
-    echo -e "${CYAN}New ssh key generated for ${LTCYAN}xuningy@gmail.com${CYAN} at ${LTCYAN}id_rsa.pub${CYAN}: ${NC}"
-    cat ~/.ssh/id_rsa.pub
-    echo -e "${CYAN} Key has been copied to clipboard. ${NC}"
 
-    git config --global user.email "xuningy@gmail.com"
-    git config --global user.name "Xuning Yang"
+    # Set defaults or use provided parameters
+    local email="${1:-xuningy@gmail.com}"
+    local keyname="${2:-id_rsa}"
+    local username="${3:-Xuning Yang}"
+
+    # Construct full path to key file
+    local keyfile="$HOME/.ssh/$keyname"
+
+    echo -e "${CYAN}Setting up git ssh key ${NC}"
+    ssh-keygen -t ed25519 -C "$email" -N '' -f "$keyfile" <<<y >/dev/null 2>&1
+    xclip -sel clip < "${keyfile}.pub"
+    echo -e "${CYAN}New ssh key generated for ${LTCYAN}${email}${CYAN} at ${LTCYAN}${keyfile}.pub${CYAN}: ${NC}"
+    cat "${keyfile}.pub"
+    echo -e "${CYAN}Key has been copied to clipboard. ${NC}"
+
+    git config --global user.email "$email"
+    git config --global user.name "$username"
 }
 
 cuda-versions() {
