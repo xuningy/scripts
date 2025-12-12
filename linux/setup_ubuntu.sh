@@ -64,23 +64,33 @@ while read -r package ; do
       	alreadyInstalled "$package"
     fi
 done < <(cat << "EOF"
-    terminator
-    curl
-    wget
-    git
-    vim
-    htop
-    xclip
-    vlc
-    caffeine
-    slack-desktop
-    python3-wstool
-    python3-pip
-    software-properties-common
-    apt-transport-https
-    net-tools
+terminator
+curl
+wget
+git
+vim
+htop
+xclip
+vlc
+caffeine
+python3-pip
+software-properties-common
+apt-transport-https
+net-tools
+git-lfs
+ffmpeg
+openssh-server
 EOF
 )
+
+# install Slack (requires snap or manual repository setup)
+if ! command -v slack &> /dev/null; then
+    installing "slack-desktop"
+    sudo snap install slack --classic
+    success "slack-desktop"
+else
+    alreadyInstalled "slack-desktop"
+fi
 
 # install autojump
 if ! debianInstalled autojump; then
@@ -92,45 +102,30 @@ else
     alreadyInstalled "autojump"
 fi
 
-# install flux gui
-if ! debianInstalled fluxgui; then
-  installing "flux"
-  sudo add-apt-repository ppa:nathan-renniewaldock/flux
-  sudo apt update
-  sudo apt install fluxgui -y
-  success "flux"
-else
-  alreadyInstalled "flux"
-fi
-
-# install sticky notes
-# https://launchpad.net/~umang/+archive/ubuntu/indicator-stickynotes
-if ! debianInstalled indicator-stickynotes; then
-  sudo apt-add-repository ppa:umang/indicator-stickynotes
-  sudo apt update
-  sudo apt install indicator-stickynotes -y
-  success "stickynotes"
-else
-  alreadyInstalled "stickynotes"
-fi
-
 # install python stuff
+# Note: Using --break-system-packages because Ubuntu 24.04+ blocks pip installs
+# These packages won't conflict with system packages. Use conda (installed below) for future package management.
 echo -e "\n${CYAN}Install python related stuff... ${NC}"
-python3 -m pip install colored
-python3 -m pip install matplotlib
+python3 -m pip install --break-system-packages colored
+python3 -m pip install --break-system-packages matplotlib
+python3 -m pip install --break-system-packages uv
 
 #echo -e "${CYAN}Installing gitcheck"
-python3 -m pip install git+https://github.com/xuningy/gitcheck.git
+python3 -m pip install --break-system-packages git+https://github.com/xuningy/gitcheck.git
 
 # install miniforge3
-installing "miniforge3"
-wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
-bash Miniforge3.sh -b -p "${HOME}/conda"
-SHELL_CONFIG="$HOME/.bashrc"  # Adjust if using a different shell (e.g., .zshrc)
-echo "export PATH=\"$INSTALL_DIR/bin:\$PATH\"" >> $SHELL_CONFIG
-source $SHELL_CONFIG
-conda init
-success "miniforge3. restart terminal to use conda"
+INSTALL_DIR="${HOME}/conda"
+if [ ! -d "$INSTALL_DIR" ]; then
+    installing "miniforge3"
+    wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+    bash Miniforge3.sh -b -p "${INSTALL_DIR}"
+    rm Miniforge3.sh
+    SHELL_CONFIG="$HOME/.bashrc"  # Adjust if using a different shell (e.g., .zshrc)
+    echo "export PATH=\"$INSTALL_DIR/bin:\$PATH\"" >> $SHELL_CONFIG
+    source $SHELL_CONFIG
+else
+    alreadyInstalled "miniforge3 at $INSTALL_DIR"
+fi
 
 #-------------------------------------------------------------------------------
 echo -e "\n${BLUE}Installing theme and fonts... ${NC}"
@@ -145,13 +140,23 @@ else
   echo -e "${LTBLUE}gnome layout manager ${BLUE}already installed ${NC}"
 fi
 
-# flat remix theme
-if ! debianInstalled flat-remix-gtk; then
+# flat remix theme - installed from GitHub instead of PPA (PPA doesn't support Noble/24.04)
+if [ ! -d "/usr/share/themes/Flat-Remix-GTK-Blue-Dark" ]; then
     echo -e "${BLUE}Installing ${LTBLUE}flat remix gtk theme and icon pack ${NC}"
-    sudo add-apt-repository ppa:daniruiz/flat-remix
-    sudo apt update
-    sudo apt install flat-remix-gtk -y
-    sudo apt install flat-remix -y
+    cd /tmp
+    
+    # Install GTK theme
+    wget -O flat-remix-gtk.tar.gz https://github.com/daniruiz/flat-remix-gtk/archive/refs/heads/master.tar.gz
+    tar -xzf flat-remix-gtk.tar.gz
+    sudo cp -r flat-remix-gtk-master/themes/* /usr/share/themes/
+    rm -rf flat-remix-gtk-master flat-remix-gtk.tar.gz
+    
+    # Install icon theme
+    wget -O flat-remix-icons.tar.gz https://github.com/daniruiz/flat-remix/archive/refs/heads/master.tar.gz
+    tar -xzf flat-remix-icons.tar.gz
+    sudo cp -r flat-remix-master/Flat-Remix* /usr/share/icons/
+    rm -rf flat-remix-master flat-remix-icons.tar.gz
+    
     gsettings set org.gnome.desktop.interface gtk-theme "Flat-Remix-GTK-Blue-Dark"
     gsettings set org.gnome.desktop.interface icon-theme "Flat-Remix-Blue-Dark"
     gsettings set org.gnome.desktop.interface cursor-theme 'Whiteglass'
@@ -193,7 +198,7 @@ if [[ "$(fc-list | grep -i SourceSansPro)" == "" ]]; then
 
     gsettings set org.gnome.desktop.interface document-font-name 'Source Sans Pro Regular 11'
     gsettings set org.gnome.desktop.interface font-name 'Source Sans Pro Regular 10'
-    gsettings set org.gnome.nautilus.desktop font 'Source Sans Pro Regular 10'
+    # Note: org.gnome.nautilus.desktop schema removed in Ubuntu 24.04/GNOME 46+
     gsettings set org.gnome.desktop.wm.preferences titlebar-font 'Source Sans Pro Regular 11'
 
     echo -e "${LTBLUE}Source Serif/Code/Sans Pro ${BLUE}successfully installed, gnome interface set to Source Sans Pro ${NC}"
@@ -220,10 +225,23 @@ echo -e "${BLUE}Note: Any additional style elements can be set using dconf-edito
 # ------------------------------------------------------------------------------
 # generate git key etc
 echo -e "${CYAN}Setting up git global user email and name (gmail) ${NC}"
-ssh-keygen -t rsa -C "xuningy@gmail.com" -N '' -f ~/.ssh/id_rsa <<<y >/dev/null 2>&1
-xclip -sel clip < ~/.ssh/id_rsa.pub
+ssh-keygen -t ed25519 -C "xuningy@gmail.com" -N '' -f ~/.ssh/id_github <<<y >/dev/null 2>&1
+xclip -sel clip < ~/.ssh/id_github.pub
 
 git config --global user.email "xuningy@gmail.com"
 git config --global user.name "Xuning Yang"
 
 echo -e "${CYAN}Git setup complete ${NC}"
+
+# ------------------------------------------------------------------------------
+# Add source_all_linux.sh to bashrc if not already present
+if ! grep -q "source_all_linux.sh" ~/.bashrc; then
+    echo -e "${CYAN}Adding source_all_linux.sh to ~/.bashrc ${NC}"
+    echo "" >> ~/.bashrc
+    echo "# Source linux scripts and shortcuts" >> ~/.bashrc
+    echo "source $HOME/scripts/linux/source_all_linux.sh" >> ~/.bashrc
+    echo -e "${CYAN}source_all_linux.sh ${GREEN}added to bashrc ${NC}"
+else
+    echo -e "${LTCYAN}source_all_linux.sh ${CYAN}already in bashrc ${NC}"
+fi
+
