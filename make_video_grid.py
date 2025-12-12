@@ -35,6 +35,14 @@ class VideoGridMaker:
         self.label_box = True
         self.label_box_color = "black@0.5"
 
+        # User-provided videos and captions
+        self.user_videos = None  # List of video file paths
+        self.user_captions = None  # List of captions for each video
+        self.custom_title = None  # Custom title for the grid
+
+        # Layout options
+        self.vertical_stack = False  # Stack videos vertically (single column)
+
         # Verbosity
         self.verbose = os.environ.get('FFMPEG_VERBOSE', 'false').lower() == 'true'
 
@@ -204,13 +212,37 @@ class VideoGridMaker:
 
     def make_grid(self):
         """Main function to create the video grid."""
-        # Find videos
-        videos, video_numbers, common_name = self.find_videos()
-        if videos is None:
-            return 1
+        # Use user-provided videos and captions, or auto-detect
+        if self.user_videos:
+            videos = self.user_videos
+            # Validate that all video files exist
+            for video in videos:
+                if not os.path.exists(video):
+                    print(f"Error: Video file not found: {video}", file=sys.stderr)
+                    return 1
+
+            # Use user captions, or fallback to filenames
+            if self.user_captions:
+                if len(self.user_captions) != len(videos):
+                    print(f"Error: Number of captions ({len(self.user_captions)}) "
+                          f"must match number of videos ({len(videos)})", file=sys.stderr)
+                    return 1
+                video_numbers = self.user_captions
+            else:
+                # Use filenames without extension as labels
+                video_numbers = [Path(v).stem for v in videos]
+
+            # Use custom title or None
+            common_name = self.custom_title
+            print(f"Using {len(videos)} user-provided videos")
+        else:
+            # Auto-detect videos
+            videos, video_numbers, common_name = self.find_videos()
+            if videos is None:
+                return 1
+            print(f"Found {len(videos)} videos")
 
         n = len(videos)
-        print(f"Found {n} videos")
 
         # Get metadata for all videos
         print("Detecting video durations and framerates...")
@@ -243,8 +275,12 @@ class VideoGridMaker:
               f"(padding: {padding}px = {self.padding_percent}% top/bottom)")
 
         # Calculate grid size
-        cols = math.ceil(math.sqrt(n))
-        rows = math.ceil(n / cols)
+        if self.vertical_stack:
+            cols = 1
+            rows = n
+        else:
+            cols = math.ceil(math.sqrt(n))
+            rows = math.ceil(n / cols)
 
         # Build filter chain
         filters = self.build_filter_chain(
@@ -342,13 +378,28 @@ Examples:
   python make_video_grid.py --label-size 36 --label-color yellow # Bigger yellow labels
   python make_video_grid.py --label-format "Camera %s"           # Custom label format
 
+  # Explicit videos with captions:
+  python make_video_grid.py --videos a.mp4 b.mp4 c.mp4 --captions "Run 1" "Run 2" "Run 3"
+  python make_video_grid.py --videos *.mp4 --title "My Experiment"
+  python make_video_grid.py --vertical                            # Stack videos in a single column
+
 Expected input: MP4 files named like experiment_0.mp4, experiment_1.mp4, etc.
+Or use --videos to explicitly specify video files.
 Note: Videos that finish early and are frozen will show a checkmark (✓) next to their label.
         """
     )
 
+    # Input options
+    input_group = parser.add_argument_group('Input Options')
+    input_group.add_argument('--videos', nargs='+', metavar='VIDEO',
+                            help='Explicit list of video files (instead of auto-detecting)')
+    input_group.add_argument('--captions', nargs='+', metavar='CAPTION',
+                            help='Captions for each video (must match number of videos)')
+
     # Title options
     title_group = parser.add_argument_group('Title Options')
+    title_group.add_argument('--title', type=str, default=None,
+                            help='Custom title for the grid (useful with --videos)')
     title_group.add_argument('--no-title', action='store_true',
                             help='Hide the title at the top of the grid')
     title_group.add_argument('--title-padding', type=int, default=80,
@@ -356,6 +407,8 @@ Note: Videos that finish early and are frozen will show a checkmark (✓) next t
 
     # Grid options
     grid_group = parser.add_argument_group('Grid Options')
+    grid_group.add_argument('--vertical', action='store_true',
+                           help='Stack videos vertically (single column)')
     grid_group.add_argument('--width', type=int, default=640,
                            help='Maximum width for each video cell (default: 640)')
     grid_group.add_argument('--padding', type=float, default=2,
@@ -389,8 +442,12 @@ Note: Videos that finish early and are frozen will show a checkmark (✓) next t
 
     # Create VideoGridMaker and set options
     maker = VideoGridMaker()
+    maker.user_videos = args.videos
+    maker.user_captions = args.captions
+    maker.custom_title = args.title
     maker.show_title = not args.no_title
     maker.title_padding = args.title_padding
+    maker.vertical_stack = args.vertical
     maker.max_width = args.width
     maker.padding_percent = args.padding
     maker.freeze_frame_offset = args.freeze_offset
