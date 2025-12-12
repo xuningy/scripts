@@ -20,36 +20,73 @@ bye() {
 # generate ssh-key
 generate-ssh() {
     if [[ $1 = "-h" ]] || [[ $1 = "--help" ]]; then
-        echo -e "${CYAN} Generate new ssh key.\nUsage:\n\t generate-ssh [EMAIL] [FILENAME] [NAME]"
-        echo -e "\nArguments:"
-        echo -e "  EMAIL     Email address for the SSH key (default: xuningy@gmail.com)"
-        echo -e "  FILENAME  Name of the key file in ~/.ssh/ (default: id_rsa)"
-        echo -e "  NAME      Your name for git config (default: Xuning Yang)"
+        echo -e "${CYAN} Generate new SSH key using ed25519 (most secure).\nUsage:\n\t generate-ssh [OPTIONS] [EMAIL] [FILENAME] [NAME]"
+        echo -e "\nOptions:"
+        echo -e "  --email EMAIL       Email address for the SSH key"
+        echo -e "  --filename FILE     Name of the key file in ~/.ssh/"
+        echo -e "  --name NAME         Your name for git config"
+        echo -e "\nPositional Arguments (if not using options):"
+        echo -e "  EMAIL               Email address for the SSH key (default: xuningy@gmail.com)"
+        echo -e "  FILENAME            Name of the key file in ~/.ssh/ (default: id_ed25519)"
+        echo -e "  NAME                Your name for git config (default: Xuning Yang)"
         echo -e "\nExamples:"
         echo -e "  generate-ssh"
+        echo -e "  generate-ssh --email myemail@example.com --filename id_ed25519_work"
+        echo -e "  generate-ssh --email myemail@example.com --name \"John Doe\""
         echo -e "  generate-ssh myemail@example.com"
-        echo -e "  generate-ssh myemail@example.com id_ed25519"
+        echo -e "  generate-ssh myemail@example.com id_ed25519_work"
         echo -e "  generate-ssh myemail@example.com id_ed25519 \"John Doe\"${NC}"
         return
     fi
 
-    # Set defaults or use provided parameters
-    local email="${1:-xuningy@gmail.com}"
-    local keyname="${2:-id_rsa}"
-    local username="${3:-Xuning Yang}"
+    # Set defaults
+    local email="xuningy@gmail.com"
+    local keyname="id_ed25519"
+    local username="Xuning Yang"
+
+    # Parse named arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --email)
+                email="$2"
+                shift 2
+                ;;
+            --filename)
+                keyname="$2"
+                shift 2
+                ;;
+            --name)
+                username="$2"
+                shift 2
+                ;;
+            *)
+                # If not a named argument, treat as positional
+                if [[ -z "${email_set:-}" ]]; then
+                    email="$1"
+                    email_set=1
+                elif [[ -z "${keyname_set:-}" ]]; then
+                    keyname="$1"
+                    keyname_set=1
+                elif [[ -z "${username_set:-}" ]]; then
+                    username="$1"
+                    username_set=1
+                fi
+                shift
+                ;;
+        esac
+    done
 
     # Construct full path to key file
     local keyfile="$HOME/.ssh/$keyname"
 
     echo -e "${CYAN}Setting up git ssh key ${NC}"
     ssh-keygen -t ed25519 -C "$email" -N '' -f "$keyfile" <<<y >/dev/null 2>&1
+    ssh-add "${keyfile}.pub"
+    echo -e "ssh-add ${keyfile}.pub"
     xclip -sel clip < "${keyfile}.pub"
     echo -e "${CYAN}New ssh key generated for ${LTCYAN}${email}${CYAN} at ${LTCYAN}${keyfile}.pub${CYAN}: ${NC}"
     cat "${keyfile}.pub"
     echo -e "${CYAN}Key has been copied to clipboard. ${NC}"
-
-    git config --global user.email "$email"
-    git config --global user.name "$username"
 }
 
 cuda-versions() {
