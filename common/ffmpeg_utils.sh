@@ -886,6 +886,131 @@ EOF
 }
 
 
+ffmpeg_chop_video() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_chop_video [filename_with_ext]"
+        echo -e "\nSplits a wide video horizontally in half, creating left and right halves."
+        echo -e "\nOutput files:"
+        echo -e "  <filename>_left.<ext>   Left half of the video"
+        echo -e "  <filename>_right.<ext>  Right half of the video"
+        echo -e "\nExample:"
+        echo -e "  ffmpeg_chop_video wide_video.mp4"
+        return
+    fi
+
+    fullfile=$1
+
+    filename=$(basename -- "$fullfile")
+    directory=$(dirname -- "$fullfile")
+    extension="${filename##*.}"
+    filename="${filename%.*}"
+
+    # Get video width
+    video_width=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of default=noprint_wrappers=1:nokey=1 "$fullfile")
+    half_width=$((video_width / 2))
+
+    echo "Video width: ${video_width}px, splitting at ${half_width}px"
+
+    # Extract left half
+    echo "Extracting left half..."
+    ffmpeg -i "$fullfile" -vf "crop=${half_width}:ih:0:0" -c:a copy "${directory}/${filename}_left.${extension}"
+
+    # Extract right half
+    echo "Extracting right half..."
+    ffmpeg -i "$fullfile" -vf "crop=${half_width}:ih:${half_width}:0" -c:a copy "${directory}/${filename}_right.${extension}"
+
+    echo "Done! Created:"
+    echo "  ${directory}/${filename}_left.${extension}"
+    echo "  ${directory}/${filename}_right.${extension}"
+}
+
+ffmpeg_chop_video_batch() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_chop_video_batch [folder] [OPTIONS]"
+        echo -e "\nBatch splits wide videos horizontally in half."
+        echo -e "\nArguments:"
+        echo -e "  [folder]              Folder containing videos. Defaults to current directory."
+        echo -e "\nOptions:"
+        echo -e "  --pattern PATTERN     Glob pattern for files to include (default: *.mp4)"
+        echo -e "  --exclude PATTERN     Glob pattern for files to exclude (e.g., *_viewport.mp4)"
+        echo -e "\nExamples:"
+        echo -e "  ffmpeg_chop_video_batch                                    # All mp4s in current dir"
+        echo -e "  ffmpeg_chop_video_batch /path/to/videos                    # All mp4s in specified dir"
+        echo -e "  ffmpeg_chop_video_batch . --exclude '*_viewport.mp4'       # Exclude viewport files"
+        echo -e "  ffmpeg_chop_video_batch . --pattern '*.mov'                # Process mov files instead"
+        return
+    fi
+
+    local folder="${1:-.}"
+    local pattern="*.mp4"
+    local exclude=""
+
+    # Shift past folder argument if provided
+    if [[ $# -gt 0 && "$1" != --* ]]; then
+        shift
+    fi
+
+    # Parse optional arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --pattern)
+                pattern="$2"
+                shift 2
+                ;;
+            --exclude)
+                exclude="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unknown option: $1"
+                echo "Use --help for usage information"
+                return 1
+                ;;
+        esac
+    done
+
+    # Check if the specified folder exists
+    if [ ! -d "$folder" ]; then
+        echo "Error: Folder '$folder' does not exist."
+        return 1
+    fi
+
+    # Find matching files
+    local count=0
+    local processed=0
+
+    for video in "$folder"/$pattern; do
+        # Skip if no matches (glob returns pattern itself)
+        [[ -e "$video" ]] || continue
+
+        # Skip if matches exclude pattern
+        if [[ -n "$exclude" ]]; then
+            local basename_video=$(basename "$video")
+            if [[ "$basename_video" == $exclude ]]; then
+                echo "Skipping (excluded): $video"
+                continue
+            fi
+        fi
+
+        # Skip files that are already chopped (contain _left or _right)
+        if [[ "$video" == *_left.* ]] || [[ "$video" == *_right.* ]]; then
+            echo "Skipping (already chopped): $video"
+            continue
+        fi
+
+        ((count++))
+        echo -e "\n=== Processing ($count): $video ==="
+        ffmpeg_chop_video "$video"
+        ((processed++))
+    done
+
+    if [[ $count -eq 0 ]]; then
+        echo "No matching files found in '$folder' with pattern '$pattern'"
+    else
+        echo -e "\n=== Batch complete: processed $processed video(s) ==="
+    fi
+}
+
 # Recursively rename all files ending with _env.mp4 to .mp4
 rename_env_mp4() {
     local target_dir="${1:-.}"
