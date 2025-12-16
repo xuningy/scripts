@@ -5,6 +5,7 @@ Creates a grid video from MP4 files matching pattern <video_name>_<number>.mp4
 """
 
 import argparse
+import fnmatch
 import glob
 import math
 import os
@@ -42,6 +43,10 @@ class VideoGridMaker:
 
         # Layout options
         self.vertical_stack = False  # Stack videos vertically (single column)
+
+        # Filtering options
+        self.patterns = None  # Include patterns (glob-style)
+        self.excludes = None  # Exclude patterns (glob-style)
 
         # Verbosity
         self.verbose = os.environ.get('FFMPEG_VERBOSE', 'false').lower() == 'true'
@@ -96,9 +101,46 @@ class VideoGridMaker:
             print(f"Error getting metadata for {video_path}: {e}", file=sys.stderr)
             return None
 
+    def filter_videos(self, videos):
+        """Filter videos by include/exclude patterns."""
+        if not videos:
+            return videos
+
+        filtered = videos
+
+        # Apply include patterns (keep videos matching ANY pattern)
+        if self.patterns:
+            matched = []
+            for video in filtered:
+                basename = os.path.basename(video)
+                for pattern in self.patterns:
+                    if fnmatch.fnmatch(basename, pattern):
+                        matched.append(video)
+                        break
+            filtered = matched
+
+        # Apply exclude patterns (remove videos matching ANY pattern)
+        if self.excludes:
+            excluded = []
+            for video in filtered:
+                basename = os.path.basename(video)
+                keep = True
+                for pattern in self.excludes:
+                    if fnmatch.fnmatch(basename, pattern):
+                        keep = False
+                        break
+                if keep:
+                    excluded.append(video)
+            filtered = excluded
+
+        return filtered
+
     def find_videos(self):
         """Find all MP4 files in current directory and extract video numbers."""
         videos = sorted(glob.glob("*.mp4"))
+
+        # Apply pattern filtering
+        videos = self.filter_videos(videos)
 
         if not videos:
             print("No MP4 files found.")
@@ -221,13 +263,29 @@ class VideoGridMaker:
                     print(f"Error: Video file not found: {video}", file=sys.stderr)
                     return 1
 
+            # Apply pattern filtering to user-provided videos
+            original_count = len(videos)
+            videos = self.filter_videos(videos)
+            if len(videos) != original_count:
+                print(f"Filtered from {original_count} to {len(videos)} videos based on patterns")
+
+            if not videos:
+                print("No videos remaining after filtering.")
+                return 1
+
             # Use user captions, or fallback to filenames
             if self.user_captions:
-                if len(self.user_captions) != len(videos):
+                # Filter captions to match filtered videos
+                if len(self.user_captions) == original_count and len(videos) != original_count:
+                    # Rebuild captions for filtered videos
+                    video_numbers = [Path(v).stem for v in videos]
+                    print("Note: Captions regenerated from filenames after filtering")
+                elif len(self.user_captions) != len(videos):
                     print(f"Error: Number of captions ({len(self.user_captions)}) "
                           f"must match number of videos ({len(videos)})", file=sys.stderr)
                     return 1
-                video_numbers = self.user_captions
+                else:
+                    video_numbers = self.user_captions
             else:
                 # Use filenames without extension as labels
                 video_numbers = [Path(v).stem for v in videos]
@@ -378,6 +436,12 @@ Examples:
   python make_video_grid.py --label-size 36 --label-color yellow # Bigger yellow labels
   python make_video_grid.py --label-format "Camera %s"           # Custom label format
 
+  # Filter videos by pattern:
+  python make_video_grid.py --pattern "*_cam1*"                  # Only videos matching pattern
+  python make_video_grid.py --pattern "*_0.mp4" "*_1.mp4"        # Multiple include patterns
+  python make_video_grid.py --exclude "*_debug*" "*_test*"       # Exclude matching patterns
+  python make_video_grid.py --pattern "run*" --exclude "*_bad*"  # Combine include and exclude
+
   # Explicit videos with captions:
   python make_video_grid.py --videos a.mp4 b.mp4 c.mp4 --captions "Run 1" "Run 2" "Run 3"
   python make_video_grid.py --videos *.mp4 --title "My Experiment"
@@ -395,6 +459,10 @@ Note: Videos that finish early and are frozen will show a checkmark (✓) next t
                             help='Explicit list of video files (instead of auto-detecting)')
     input_group.add_argument('--captions', nargs='+', metavar='CAPTION',
                             help='Captions for each video (must match number of videos)')
+    input_group.add_argument('--pattern', nargs='+', metavar='PATTERN',
+                            help='Include only videos matching pattern(s) (glob-style, e.g. "*_cam1*")')
+    input_group.add_argument('--exclude', nargs='+', metavar='PATTERN',
+                            help='Exclude videos matching pattern(s) (glob-style, e.g. "*_debug*")')
 
     # Title options
     title_group = parser.add_argument_group('Title Options')
@@ -444,6 +512,8 @@ Note: Videos that finish early and are frozen will show a checkmark (✓) next t
     maker = VideoGridMaker()
     maker.user_videos = args.videos
     maker.user_captions = args.captions
+    maker.patterns = args.pattern
+    maker.excludes = args.exclude
     maker.custom_title = args.title
     maker.show_title = not args.no_title
     maker.title_padding = args.title_padding

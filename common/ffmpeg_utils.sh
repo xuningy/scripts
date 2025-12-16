@@ -555,6 +555,10 @@ make_video_grid() {
     local label_box=true
     local label_box_color="black@0.5"
 
+    # Filtering settings
+    local -a patterns=()    # Include patterns (glob-style)
+    local -a excludes=()    # Exclude patterns (glob-style)
+
     # Parse command-line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -566,6 +570,12 @@ Create a grid video from MP4 files matching pattern <video_name>_<number>.mp4
 
 Options:
     -h, --help              Show this help message
+
+  Input Options:
+    --pattern PATTERN       Include only videos matching pattern (glob-style, repeatable)
+                            Examples: --pattern "*_cam1*" --pattern "*_cam2*"
+    --exclude PATTERN       Exclude videos matching pattern (glob-style, repeatable)
+                            Examples: --exclude "*_debug*" --exclude "*_test*"
 
   Title Options:
     --no-title              Hide the title at the top of the grid
@@ -604,6 +614,10 @@ Examples:
     make_video_grid --label-position top                        # Labels at top of each video
     make_video_grid --no-label-box                              # No background box on labels
     make_video_grid --label-box-color "blue@0.8"                # Blue semi-transparent box
+    make_video_grid --pattern "*_cam1*"                          # Only videos matching pattern
+    make_video_grid --pattern "*_0.mp4" --pattern "*_1.mp4"      # Multiple include patterns
+    make_video_grid --exclude "*_debug*" --exclude "*_test*"     # Exclude matching patterns
+    make_video_grid --pattern "run*" --exclude "*_bad*"          # Combine include and exclude
 
 Expected input: MP4 files named like experiment_0.mp4, experiment_1.mp4, etc.
 Output: Videos arranged in a grid with individual frame numbers and optional title.
@@ -665,6 +679,14 @@ EOF
                 label_box_color="$2"
                 shift 2
                 ;;
+            --pattern)
+                patterns+=("$2")
+                shift 2
+                ;;
+            --exclude)
+                excludes+=("$2")
+                shift 2
+                ;;
             *)
                 echo "Unknown option: $1"
                 echo "Use --help for usage information"
@@ -676,10 +698,60 @@ EOF
     # Detect mp4 files in current directory matching pattern <video_name>_<number>.mp4
     local videos=( *.mp4 )
     local n=${#videos[@]}
-    if (( n == 0 )); then
+    if (( n == 0 )) || [[ "${videos[0]}" == "*.mp4" ]]; then
         echo "No MP4 files found."
         return 1
     fi
+
+    # Apply pattern filtering (include patterns)
+    if (( ${#patterns[@]} > 0 )); then
+        local filtered=()
+        for v in "${videos[@]}"; do
+            local matched=false
+            for pattern in "${patterns[@]}"; do
+                # Use case statement for reliable glob matching
+                case "$v" in
+                    $pattern) matched=true; break ;;
+                esac
+            done
+            if [ "$matched" = true ]; then
+                filtered+=("$v")
+            fi
+        done
+        videos=("${filtered[@]}")
+        n=${#videos[@]}
+        if (( n == 0 )); then
+            echo "No MP4 files match the specified pattern(s): ${patterns[*]}"
+            return 1
+        fi
+        echo "Pattern filter matched ${n} videos"
+    fi
+
+    # Apply exclude filtering
+    if (( ${#excludes[@]} > 0 )); then
+        local filtered=()
+        for v in "${videos[@]}"; do
+            local excluded=false
+            for pattern in "${excludes[@]}"; do
+                # Use case statement for reliable glob matching
+                case "$v" in
+                    $pattern) excluded=true; break ;;
+                esac
+            done
+            if [ "$excluded" = false ]; then
+                filtered+=("$v")
+            fi
+        done
+        videos=("${filtered[@]}")
+        n=${#videos[@]}
+        if (( n == 0 )); then
+            echo "No MP4 files remaining after exclusions: ${excludes[*]}"
+            return 1
+        fi
+        echo "After exclusions: ${n} videos remain"
+    fi
+
+    echo "Found ${n} videos after filtering"
 
     # Extract common video name by finding pattern <name>_<number>.mp4
     local common_name=""
