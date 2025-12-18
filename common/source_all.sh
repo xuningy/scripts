@@ -6,6 +6,7 @@ source $BASH_SCRIPTS_DIR/common/shortcuts.sh
 source $BASH_SCRIPTS_DIR/common/ffmpeg_utils.sh
 source $BASH_SCRIPTS_DIR/common/commands.sh
 source $BASH_SCRIPTS_DIR/common/git_utils.sh
+source $BASH_SCRIPTS_DIR/common/scp_rsync.sh
 
 source_all() {
     # Source distribution specific files
