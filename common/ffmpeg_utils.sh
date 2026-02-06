@@ -1,5 +1,157 @@
 #!/bin/bash
 
+extract_frames_with_time() {
+  if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+    echo -e "Usage: extract_frames_with_time [OPTIONS] <input> [input2] [input3] ..."
+    echo -e "\nExtracts frames from video(s) with timestamp labels."
+    echo -e "\nOptions (choose one):"
+    echo -e "  -dt SECONDS     Extract frames every SECONDS interval (e.g., -dt 20)"
+    echo -e "  -n COUNT        Extract COUNT frames evenly spaced (including first and last)"
+    echo -e "\nOptional:"
+    echo -e "  --fontsize SIZE Font size for labels (default: 24)"
+    echo -e "\nExamples:"
+    echo -e "  extract_frames_with_time -dt 20 video.mp4                    # Every 20 seconds"
+    echo -e "  extract_frames_with_time -n 5 video.mp4                      # 5 evenly spaced frames"
+    echo -e "  extract_frames_with_time -n 10 --fontsize 36 video.mp4       # 10 frames, larger text"
+    echo -e "  extract_frames_with_time -n 5 video1.mp4 video2.mp4 video3.mp4  # Multiple files"
+    echo -e "  extract_frames_with_time -dt 20 *.mp4                        # All mp4 files in dir"
+    echo -e "\nOutput:"
+    echo -e "  -dt mode: Labels show timestamp (HH:MM:SS)"
+    echo -e "  -n mode:  Labels show position (1/N, 2/N, etc.)"
+    echo -e "  Each video creates a folder named after the video file."
+    return 0
+  fi
+
+  # Parse options first
+  local mode=""
+  local interval=""
+  local num_frames=""
+  local fontsize=24
+  local -a inputs=()
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -dt)
+        mode="interval"
+        interval="$2"
+        shift 2
+        ;;
+      -n)
+        mode="count"
+        num_frames="$2"
+        shift 2
+        ;;
+      --fontsize)
+        fontsize="$2"
+        shift 2
+        ;;
+      -*)
+        echo "Unknown option: $1"
+        return 1
+        ;;
+      *)
+        # Not an option, must be an input file
+        inputs+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  if [ -z "$mode" ]; then
+    echo "Error: Must specify either -dt or -n"
+    echo "Usage: extract_frames_with_time [OPTIONS] <input> [input2] ..."
+    return 1
+  fi
+
+  if [ ${#inputs[@]} -eq 0 ]; then
+    echo "Error: No input file(s) specified"
+    echo "Usage: extract_frames_with_time [OPTIONS] <input> [input2] ..."
+    return 1
+  fi
+
+  # Process each input file
+  local total=${#inputs[@]}
+  local current=0
+
+  for input in "${inputs[@]}"; do
+    ((current++))
+
+    # Check if file exists
+    if [ ! -f "$input" ]; then
+      echo "[$current/$total] Skipping: '$input' not found"
+      continue
+    fi
+
+    echo "[$current/$total] Processing: $input"
+
+    # Get base filename without path and extension
+    local filename
+    filename="$(basename "$input")"
+    filename="${filename%.*}"
+
+    # Create output directory in the same folder as the video
+    local video_dir
+    video_dir="$(dirname "$input")"
+    local out_dir="${video_dir}/${filename}"
+    mkdir -p "$out_dir"
+
+    # Get video duration
+    local duration
+    duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input")
+
+    if [ "$mode" == "interval" ]; then
+      # Interval mode: extract every N seconds with timestamp label
+      local out_pattern="${out_dir}/frame_%04d.png"
+
+      echo "  Extracting frames every ${interval}s (duration: ${duration}s)"
+
+      ffmpeg -y -loglevel error -i "$input" \
+        -vf "select='eq(t\,0)+not(mod(t\,$interval))+gte(t\,$duration-0.1)', \
+             drawtext=font=Arial: \
+                      text='%{pts \: hms}': \
+                      fontcolor=white: fontsize=${fontsize}: \
+                      x=w-tw-20: y=h-th-20" \
+        -vsync vfr "$out_pattern"
+
+      echo "  -> Saved to ${out_dir}/"
+
+    elif [ "$mode" == "count" ]; then
+      # Count mode: extract N evenly spaced frames with 1/N labels
+      echo "  Extracting ${num_frames} evenly spaced frames (duration: ${duration}s)"
+
+      for ((i=1; i<=num_frames; i++)); do
+        # Calculate timestamp for this frame
+        # Frame 1 is at t=0, Frame N is at t=duration (but capped slightly before end)
+        local t
+        if [ "$num_frames" -eq 1 ]; then
+          t=0
+        elif [ "$i" -eq "$num_frames" ]; then
+          # Last frame: seek slightly before end to ensure we get a valid frame
+          t=$(awk "BEGIN{printf \"%.3f\", $duration - 0.1}")
+          # Ensure t is not negative for very short videos
+          if (( $(awk "BEGIN{print ($t < 0)}") )); then
+            t=0
+          fi
+        else
+          t=$(awk "BEGIN{printf \"%.3f\", ($i - 1) * $duration / ($num_frames - 1)}")
+        fi
+
+        local label="${i}/${num_frames}"
+        local out_file="${out_dir}/frame_$(printf '%04d' $i).png"
+
+        ffmpeg -y -loglevel error -ss "$t" -i "$input" \
+          -vf "drawtext=font=Arial:text='${label}':fontcolor=white:fontsize=${fontsize}:x=w-tw-20:y=h-th-20" \
+          -vframes 1 "$out_file"
+      done
+
+      echo "  -> Saved ${num_frames} frames to ${out_dir}/"
+    fi
+  done
+
+  echo "Done! Processed $total video(s)"
+}
+
+
 ffmpeg_crf() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
         echo -e "Usage: ffmpeg_crf [filename_with_ext] [crf](optional, default 23)"
@@ -150,44 +302,339 @@ ffmpeg_speed() {
     ffmpeg -i ${fullfile} -filter:v "${video_filter}" -filter:a "atempo=${speed}" "${directory}/${filename}_${speed}X.${extension}"
 }
 
+ffmpeg_caption() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_caption <input_video> [OPTIONS] -c START,END,\"TEXT\" [-c ...]"
+        echo -e "\nAdds timed captions/text overlays to a video."
+        echo -e "\nOptions:"
+        echo -e "  -c, --caption START,END,\"TEXT\""
+        echo -e "                        Add a caption (repeatable for multiple captions)"
+        echo -e "                        START: When to show caption (seconds, decimals, or HH:MM:SS.ms)"
+        echo -e "                        END: When to hide caption (seconds, decimals, or HH:MM:SS.ms)"
+        echo -e "                        TEXT: The caption text (quote if contains spaces)"
+        echo -e "  --pos POSITION        Caption position (default: bottom-center)"
+        echo -e "                        Options: top-left, top-center, top-right,"
+        echo -e "                                 bottom-left, bottom-center, bottom-right"
+        echo -e "  --fontsize SIZE       Font size (default: 10% of video height)"
+        echo -e "  --fontcolor COLOR     Font color (default: white)"
+        echo -e "  --box                 Add a semi-transparent background box behind text"
+        echo -e "  --boxcolor COLOR      Box color with opacity (default: black@0.5)"
+        echo -e "  -o, --output FILE     Output filename (default: <input>_captioned.<ext>)"
+        echo -e "\nExamples:"
+        echo -e "  # Single caption from 5s to 8s"
+        echo -e "  ffmpeg_caption video.mp4 -c 5,8,\"Hello World\""
+        echo -e ""
+        echo -e "  # Multiple captions"
+        echo -e "  ffmpeg_caption video.mp4 -c 0,2,\"Intro\" -c 5,8,\"Main Part\" -c 10,12,\"Outro\""
+        echo -e ""
+        echo -e "  # Caption at top-right with custom styling"
+        echo -e "  ffmpeg_caption video.mp4 --pos top-right --fontcolor yellow --box -c 2,7,\"Notice\""
+        echo -e ""
+        echo -e "  # Using time format HH:MM:SS or with milliseconds"
+        echo -e "  ffmpeg_caption video.mp4 -c 0:01:30,0:01:40,\"Chapter 2\""
+        echo -e "  ffmpeg_caption video.mp4 -c 5.5,8.25,\"Precise timing\""
+        echo -e "  ffmpeg_caption video.mp4 -c 0:01:30.500,0:01:33,\"At 1:30.5\""
+        return
+    fi
+
+    local fullfile=""
+    local position="bottom-center"
+    local fontsize=""
+    local fontcolor="white"
+    local use_box=false
+    local boxcolor="black@0.5"
+    local output_file=""
+    local -a captions=()
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -c|--caption)
+                captions+=("$2")
+                shift 2
+                ;;
+            --pos)
+                position="$2"
+                shift 2
+                ;;
+            --fontsize)
+                fontsize="$2"
+                shift 2
+                ;;
+            --fontcolor)
+                fontcolor="$2"
+                shift 2
+                ;;
+            --box)
+                use_box=true
+                shift
+                ;;
+            --boxcolor)
+                boxcolor="$2"
+                shift 2
+                ;;
+            -o|--output)
+                output_file="$2"
+                shift 2
+                ;;
+            -*)
+                echo "Unknown option: $1"
+                echo "Use --help for usage information"
+                return 1
+                ;;
+            *)
+                if [ -z "$fullfile" ]; then
+                    fullfile="$1"
+                else
+                    echo "Error: Multiple input files not supported"
+                    return 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # Validate required arguments
+    if [ -z "$fullfile" ]; then
+        echo "Error: Input video file required"
+        echo "Run 'ffmpeg_caption --help' for usage information"
+        return 1
+    fi
+
+    if [ ! -f "$fullfile" ]; then
+        echo "Error: File '$fullfile' not found"
+        return 1
+    fi
+
+    if [ ${#captions[@]} -eq 0 ]; then
+        echo "Error: At least one caption required (-c START,END,\"TEXT\")"
+        echo "Run 'ffmpeg_caption --help' for usage information"
+        return 1
+    fi
+
+    # Validate position
+    case "$position" in
+        top-left|top-center|top-right|bottom-left|bottom-center|bottom-right)
+            ;;
+        *)
+            echo "Error: Invalid position '$position'"
+            echo "Valid positions: top-left, top-center, top-right, bottom-left, bottom-center, bottom-right"
+            return 1
+            ;;
+    esac
+
+    local filename=$(basename -- "$fullfile")
+    local directory=$(dirname -- "$fullfile")
+    local extension="${filename##*.}"
+    filename="${filename%.*}"
+
+    # Set output filename if not specified
+    if [ -z "$output_file" ]; then
+        output_file="${directory}/${filename}_captioned.${extension}"
+    fi
+
+    # Get video dimensions
+    local video_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$fullfile")
+
+    # Calculate font size (10% of video height if not specified)
+    if [ -z "$fontsize" ]; then
+        fontsize=$(awk "BEGIN{printf \"%.0f\", $video_height * 0.1}")
+    fi
+
+    # Determine text position based on position parameter
+    local text_x
+    local text_y
+
+    case "$position" in
+        top-left)
+            text_x="40"
+            text_y="40"
+            ;;
+        top-center)
+            text_x="(w-tw)/2"
+            text_y="40"
+            ;;
+        top-right)
+            text_x="w-tw-40"
+            text_y="40"
+            ;;
+        bottom-left)
+            text_x="40"
+            text_y="h-th-40"
+            ;;
+        bottom-center)
+            text_x="(w-tw)/2"
+            text_y="h-th-40"
+            ;;
+        bottom-right)
+            text_x="w-tw-40"
+            text_y="h-th-40"
+            ;;
+    esac
+
+    # Build the drawtext filter chain
+    local filter_parts=()
+
+    for caption_spec in "${captions[@]}"; do
+        # Parse caption: START,END,"TEXT"
+        # Use a more robust parsing approach
+        local start_time end_time caption_text
+
+        # Split by comma, but handle text that might contain commas
+        # Format: START,END,TEXT
+        IFS=',' read -r start_time end_time caption_text <<< "$caption_spec"
+
+        # If caption_text is empty but there are more fields, rejoin them
+        # This handles cases where text contains commas
+        local field_count=$(echo "$caption_spec" | awk -F',' '{print NF}')
+        if [ "$field_count" -gt 3 ]; then
+            # Text contains commas, need to rejoin fields 3+
+            caption_text=$(echo "$caption_spec" | cut -d',' -f3-)
+        fi
+
+        # Remove surrounding quotes if present
+        caption_text="${caption_text#\"}"
+        caption_text="${caption_text%\"}"
+        caption_text="${caption_text#\'}"
+        caption_text="${caption_text%\'}"
+
+        if [ -z "$start_time" ] || [ -z "$end_time" ] || [ -z "$caption_text" ]; then
+            echo "Error: Invalid caption format: '$caption_spec'"
+            echo "Expected format: START,END,\"TEXT\""
+            return 1
+        fi
+
+        # Convert time formats to seconds for calculation
+        local start_seconds end_seconds
+
+        # Function to convert HH:MM:SS.ms or seconds to seconds
+        convert_to_seconds() {
+            local time_str="$1"
+            if [[ "$time_str" =~ ^[0-9]+:[0-9]+:[0-9]+\.?[0-9]*$ ]] || [[ "$time_str" =~ ^[0-9]+:[0-9]+\.?[0-9]*$ ]]; then
+                # HH:MM:SS.ms or MM:SS.ms format - use awk to convert
+                echo "$time_str" | awk -F: '{
+                    if (NF == 3) printf "%.3f", ($1 * 3600) + ($2 * 60) + $3
+                    else if (NF == 2) printf "%.3f", ($1 * 60) + $2
+                    else print $1
+                }'
+            else
+                echo "$time_str"
+            fi
+        }
+
+        start_seconds=$(convert_to_seconds "$start_time")
+        end_seconds=$(convert_to_seconds "$end_time")
+
+        # Escape special characters in caption text for ffmpeg drawtext
+        # Escape single quotes, colons, and backslashes
+        local escaped_text="$caption_text"
+        escaped_text="${escaped_text//\\/\\\\\\\\}"  # Escape backslashes first
+        escaped_text="${escaped_text//:/\\:}"         # Escape colons
+        escaped_text="${escaped_text//\'/\'\\\'\'}"   # Escape single quotes
+
+        # Build drawtext filter for this caption
+        local box_params=""
+        if [ "$use_box" = true ]; then
+            box_params=":box=1:boxcolor=${boxcolor}:boxborderw=10"
+        fi
+
+        local drawtext="drawtext=text='${escaped_text}':x=${text_x}:y=${text_y}:fontcolor=${fontcolor}:fontsize=${fontsize}:font=Arial${box_params}:enable='between(t,${start_seconds},${end_seconds})'"
+
+        filter_parts+=("$drawtext")
+    done
+
+    # Join all filter parts with commas
+    local video_filter
+    video_filter=$(IFS=','; echo "${filter_parts[*]}")
+
+    echo "Adding ${#captions[@]} caption(s) to video..."
+    echo "Position: $position, Font size: $fontsize, Color: $fontcolor"
+
+    # Run ffmpeg
+    ffmpeg -i "$fullfile" -vf "$video_filter" -c:a copy "$output_file"
+
+    if [ $? -eq 0 ]; then
+        echo "Done! Output saved to: $output_file"
+    else
+        echo "Error: ffmpeg failed"
+        return 1
+    fi
+}
+
 ffmpeg_video_to_gif_batch() {
     # Check for help flag
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-        echo -e "Usage: ffmpeg_video_to_gif_batch [folder] [fps] [scale]"
+        echo -e "Usage: ffmpeg_video_to_gif_batch [folder] [--fps N] [--width W | --height H]"
         echo -e "\nBatch converts all .mp4 videos in the specified folder to GIFs using ffmpeg."
-        echo -e "\nArguments:"
-        echo -e "  [folder]  (Optional) Folder containing MP4 files. Defaults to the current directory."
-        echo -e "  [fps]     (Optional) Frames per second for the GIF. Defaults to 30."
-        echo -e "  [scale]   (Optional) Width of the output GIF. Defaults to the video's original width."
+        echo -e "\nOptions:"
+        echo -e "  [folder]     Folder containing MP4 files. Defaults to current directory."
+        echo -e "  --fps N      Frames per second for the GIF. Default: 30"
+        echo -e "  --width W    Width of the output GIF (height auto-scales)"
+        echo -e "  --height H   Height of the output GIF (width auto-scales)"
         echo -e "\nExample usage:"
-        echo -e "  ./ffmpeg_video_to_gif_batch          # Converts all MP4s in the current directory"
-        echo -e "  ./ffmpeg_video_to_gif_batch videos   # Converts all MP4s in 'videos' directory"
-        echo -e "  ./ffmpeg_video_to_gif_batch videos 24 480  # Converts with 24 fps and width 480px"
-        exit 0
+        echo -e "  ffmpeg_video_to_gif_batch                              # Current dir, 30 fps, original size"
+        echo -e "  ffmpeg_video_to_gif_batch videos                       # 'videos' dir, 30 fps, original size"
+        echo -e "  ffmpeg_video_to_gif_batch videos --fps 24 --width 480  # 24 fps, 480px wide"
+        echo -e "  ffmpeg_video_to_gif_batch --fps 15 --height 360        # Current dir, 15 fps, 360px tall"
+        return 0
     fi
-    folder="${1:-.}"  # Default to current directory if no folder is specified
-    fps="${2:-30}"    # Default to 30 fps
-    scale="$3"        # Default to original width if not provided
+
+    local folder="."
+    local fps=""
+    local width=""
+    local height=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --fps)
+                fps="$2"
+                shift 2
+                ;;
+            --width)
+                width="$2"
+                shift 2
+                ;;
+            --height)
+                height="$2"
+                shift 2
+                ;;
+            -*)
+                echo "Unknown option: $1"
+                return 1
+                ;;
+            *)
+                folder="$1"
+                shift
+                ;;
+        esac
+    done
 
     # Check if the specified folder exists
     if [ ! -d "$folder" ]; then
         echo "Error: Folder '$folder' does not exist."
-        exit 1
+        return 1
     fi
 
     # Find all .mp4 files in the folder
-    mp4_files=$(find "$folder" -maxdepth 1 -type f -name "*.mp4")
+    local mp4_files=$(find "$folder" -maxdepth 1 -type f -name "*.mp4")
 
     # Check if any .mp4 files were found
     if [ -z "$mp4_files" ]; then
         echo "No MP4 files found in '$folder'."
-        exit 0
+        return 0
     fi
+
+    # Build args to pass to ffmpeg_video_to_gif
+    local extra_args=""
+    [ -n "$fps" ] && extra_args="$extra_args --fps $fps"
+    [ -n "$width" ] && extra_args="$extra_args --width $width"
+    [ -n "$height" ] && extra_args="$extra_args --height $height"
 
     # Process each .mp4 file
     for video in $mp4_files; do
         echo "Processing: $video"
-        ffmpeg_video_to_gif "$video" "$fps" "$scale"
+        ffmpeg_video_to_gif "$video" $extra_args
     done
 
     echo "All videos have been processed."
@@ -195,34 +642,93 @@ ffmpeg_video_to_gif_batch() {
 
 ffmpeg_video_to_gif() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-        echo -e "Usage: ffmpeg_video_to_gif <input_video> [fps] [scale]"
+        echo -e "Usage: ffmpeg_video_to_gif <input_video> [--fps N] [--width W | --height H]"
         echo -e "\nConverts a video to a high-quality GIF using ffmpeg."
-        echo -e "\nArguments:"
-        echo -e "  <input_video>   Path to the input video file."
-        echo -e "  [fps]          (Optional) Frames per second for the GIF. Defaults to 30."
-        echo -e "  [scale]        (Optional) Width of the output GIF. Defaults to the video's original width."
+        echo -e "\nOptions:"
+        echo -e "  --fps N      Frames per second for the GIF. Default: 30"
+        echo -e "  --width W    Width of the output GIF (height auto-scales)"
+        echo -e "  --height H   Height of the output GIF (width auto-scales)"
+        echo -e "\nIf neither --width nor --height is specified, uses original video dimensions."
         echo -e "\nExample usage:"
-        echo -e "  ffmpeg_video_to_gif video.mp4         # Uses defaults: 30 fps, original width"
-        echo -e "  ffmpeg_video_to_gif video.mp4 24 480  # 24 fps, scaled to 480px width"
+        echo -e "  ffmpeg_video_to_gif video.mp4                       # 30 fps, original size"
+        echo -e "  ffmpeg_video_to_gif video.mp4 --fps 24              # 24 fps, original size"
+        echo -e "  ffmpeg_video_to_gif video.mp4 --fps 15 --width 480  # 15 fps, 480px wide"
+        echo -e "  ffmpeg_video_to_gif video.mp4 --height 360          # 30 fps, 360px tall"
         return
     fi
 
-    fullfile=$1
-    fps=${2:-30}
-    scale=$3
-
-    filename=$(basename -- "$fullfile")
-    directory=$(dirname -- "$fullfile")
-    extension="${filename##*.}"
-    filename="${filename%.*}"
-
-    # Get the original resolution if scale is not provided
-    if [ -z "$scale" ]; then
-        scale=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$fullfile")
+    # Check for at least one argument (the input file)
+    if [ $# -lt 1 ]; then
+        echo "Error: Input video file required"
+        echo "Run 'ffmpeg_video_to_gif --help' for usage information"
+        return 1
     fi
 
-    ffmpeg -i "${fullfile}" -vf "fps=${fps},scale=${scale}:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" \
-    -loop 0 "${directory}/${filename}_fps${fps}.gif"
+    local fullfile=""
+    local fps=30
+    local width=""
+    local height=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --fps)
+                fps="$2"
+                shift 2
+                ;;
+            --width)
+                width="$2"
+                shift 2
+                ;;
+            --height)
+                height="$2"
+                shift 2
+                ;;
+            -*)
+                echo "Unknown option: $1"
+                return 1
+                ;;
+            *)
+                if [ -z "$fullfile" ]; then
+                    fullfile="$1"
+                else
+                    echo "Error: Multiple input files not supported"
+                    return 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "$fullfile" ]; then
+        echo "Error: Input video file required"
+        return 1
+    fi
+
+    local filename=$(basename -- "$fullfile")
+    local directory=$(dirname -- "$fullfile")
+    filename="${filename%.*}"
+
+    # Build scale filter and size suffix based on width/height options
+    local scale_filter
+    local size_suffix=""
+    if [ -n "$width" ] && [ -n "$height" ]; then
+        echo "Error: Cannot specify both --width and --height"
+        return 1
+    elif [ -n "$width" ]; then
+        scale_filter="scale=${width}:-1:flags=lanczos"
+        size_suffix="_width${width}"
+    elif [ -n "$height" ]; then
+        scale_filter="scale=-1:${height}:flags=lanczos"
+        size_suffix="_height${height}"
+    else
+        # Use original dimensions
+        local orig_width=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$fullfile")
+        scale_filter="scale=${orig_width}:-1:flags=lanczos"
+    fi
+
+    ffmpeg -i "${fullfile}" -vf "fps=${fps},${scale_filter},split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" \
+        -loop 0 "${directory}/${filename}_fps${fps}${size_suffix}.gif"
 }
 
 ffmpeg_img_to_gif() {
@@ -299,25 +805,97 @@ ffmpeg_img_to_gif() {
 
 ffmpeg_cut() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-        echo -e "Usage: ffmpeg_cut [filename_with_ext] [start_time (s)] [duration (s)] (optional, defaults to the end of video)"
+        echo -e "Usage: ffmpeg_cut <input_video> -s TIME [-d TIME | -e TIME]"
+        echo -e "\nCuts a portion of a video."
+        echo -e "\nOptions:"
+        echo -e "  -s, --start TIME      Start time (required). Format: seconds or HH:MM:SS"
+        echo -e "  -d, --duration TIME   Duration of the cut. Format: seconds or HH:MM:SS"
+        echo -e "  -e, --end TIME        End time (alternative to --duration). Format: seconds or HH:MM:SS"
+        echo -e "\nIf neither --duration nor --end is specified, cuts to the end of video."
+        echo -e "\nExample usage:"
+        echo -e "  ffmpeg_cut video.mp4 -s 10 -d 30          # Cut 30s starting at 10s"
+        echo -e "  ffmpeg_cut video.mp4 -s 10 -e 40          # Cut from 10s to 40s"
+        echo -e "  ffmpeg_cut video.mp4 -s 1:30 -e 2:00      # Cut from 1:30 to 2:00"
+        echo -e "  ffmpeg_cut video.mp4 --start 10           # Cut from 10s to end"
         return
     fi
-    fullfile=$1
-    start_time=$2
-    duration=$3
 
-    filename=$(basename -- "$fullfile")
-    directory=$(dirname -- "$fullfile")
-    extension="${filename##*.}"
-    filename="${filename%.*}"
+    local fullfile=""
+    local start_time=""
+    local duration=""
+    local end_time=""
 
-    # Get the total duration of the video if duration is not provided
-    if [ -z "$duration" ]; then
-        total_old_duration=$(ffprobe -i "$fullfile" -show_entries format=duration -v quiet -of csv="p=0")
-        duration=$(awk "BEGIN {print $total_old_duration - $start_time}")
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -s|--start)
+                start_time="$2"
+                shift 2
+                ;;
+            -d|--duration)
+                duration="$2"
+                shift 2
+                ;;
+            -e|--end)
+                end_time="$2"
+                shift 2
+                ;;
+            -*)
+                echo "Unknown option: $1"
+                return 1
+                ;;
+            *)
+                if [ -z "$fullfile" ]; then
+                    fullfile="$1"
+                else
+                    echo "Error: Multiple input files not supported"
+                    return 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # Validate required arguments
+    if [ -z "$fullfile" ]; then
+        echo "Error: Input video file required"
+        echo "Run 'ffmpeg_cut --help' for usage information"
+        return 1
     fi
 
-    ffmpeg -ss ${start_time} -t ${duration} -i ${fullfile} "${directory}/${filename}_cut_${duration}s.${extension}"
+    if [ -z "$start_time" ]; then
+        echo "Error: -s/--start is required"
+        echo "Run 'ffmpeg_cut --help' for usage information"
+        return 1
+    fi
+
+    if [ -n "$duration" ] && [ -n "$end_time" ]; then
+        echo "Error: Cannot specify both --duration and --end"
+        return 1
+    fi
+
+    local filename=$(basename -- "$fullfile")
+    local directory=$(dirname -- "$fullfile")
+    local extension="${filename##*.}"
+    filename="${filename%.*}"
+
+    # Build ffmpeg arguments
+    local duration_args=""
+    local output_suffix=""
+
+    if [ -n "$duration" ]; then
+        duration_args="-t ${duration}"
+        output_suffix="_cut_${duration}s"
+    elif [ -n "$end_time" ]; then
+        duration_args="-to ${end_time}"
+        output_suffix="_cut_${start_time}-${end_time}"
+    else
+        # No duration or end specified - cut to end of video
+        local total_duration=$(ffprobe -i "$fullfile" -show_entries format=duration -v quiet -of csv="p=0")
+        output_suffix="_cut_from${start_time}s"
+    fi
+
+    ffmpeg -ss "${start_time}" ${duration_args} -i "${fullfile}" -c copy "${directory}/${filename}${output_suffix}.${extension}"
 }
 
 ffmpeg_img_to_video() {
@@ -334,45 +912,55 @@ ffmpeg_img_to_video() {
     ffmpeg -framerate 30 -start_number ${start_number} -i ${pattern} -c:v libx264 -pix_fmt yuv420p ${output_filename}
 }
 
-ffmpeg_stack_two_videos() {
+ffmpeg_stack() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-        echo -e "Usage: ffmpeg_stack_two_videos [file_1] [file_2] [output_file] [-d direction]"
-        echo -e "\nStack two videos either horizontally or vertically"
+        echo -e "Usage: ffmpeg_stack [video1] [video2] ... [videoN] [-o output_file] [-d direction]"
+        echo -e "\nStack N videos either horizontally or vertically"
         echo -e "\nOptions:"
         echo -e "  -d    Direction to stack: h (horizontal) or v (vertical). Default: h"
+        echo -e "  -o    Output file path. If omitted, auto-generates from common filename parts"
         echo -e "\nExamples:"
-        echo -e "  ffmpeg_stack_two_videos video1.mp4 video2.mp4 output.mp4 -d h  # Stack horizontally"
-        echo -e "  ffmpeg_stack_two_videos video1.mp4 video2.mp4 output.mp4 -d v  # Stack vertically"
-        echo -e "  ffmpeg_stack_two_videos video1.mp4 video2.mp4 output          # Stack horizontally, auto-adds .mp4"
+        echo -e "  ffmpeg_stack v1.mp4 v2.mp4 -d h                    # 2 videos, horizontal"
+        echo -e "  ffmpeg_stack v1.mp4 v2.mp4 v3.mp4 -d v             # 3 videos, vertical"
+        echo -e "  ffmpeg_stack v1.mp4 v2.mp4 v3.mp4 v4.mp4 -o out.mp4  # 4 videos with explicit output"
+        echo -e "  ffmpeg_stack *.mp4 -d h                            # All mp4 files, horizontal"
         return
     fi
 
-    # Check if we have at least 3 arguments
-    if [ $# -lt 3 ]; then
-        echo "Error: Not enough arguments"
-        echo "Run 'ffmpeg_stack_two_videos --help' for usage information"
-        return 1
-    fi
+    # Collect video files and parse options
+    local -a video_files=()
+    local output_path=""
+    local direction="h"  # Default to horizontal
 
-    fullfile_1=$1
-    fullfile_2=$2
-    output_path=$3
-    direction="h"  # Default to horizontal
-
-    # Parse optional arguments
-    shift 3
     while [[ $# -gt 0 ]]; do
         case $1 in
             -d)
                 direction="$2"
                 shift 2
                 ;;
-            *)
+            -o)
+                output_path="$2"
+                shift 2
+                ;;
+            -*)
                 echo "Unknown option: $1"
                 return 1
                 ;;
+            *)
+                video_files+=("$1")
+                shift
+                ;;
         esac
     done
+
+    local num_videos=${#video_files[@]}
+
+    # Check if we have at least 2 videos
+    if [ $num_videos -lt 2 ]; then
+        echo "Error: Need at least 2 video files"
+        echo "Run 'ffmpeg_stack --help' for usage information"
+        return 1
+    fi
 
     # Validate direction parameter
     if [ "$direction" != "h" ] && [ "$direction" != "v" ]; then
@@ -380,100 +968,109 @@ ffmpeg_stack_two_videos() {
         return 1
     fi
 
-    # Handle output format
-    if [[ ! "$output_path" =~ \.[a-zA-Z0-9]+$ ]]; then
-        output_path="${output_path}.mp4"
-    fi
+    # Auto-generate output name if not provided
+    if [ -z "$output_path" ]; then
+        # Get directory from first file
+        local dir1=$(dirname -- "${video_files[0]}")
 
-    # Get directory of output path
-    output_directory=$(dirname -- "$output_path")
+        # Get all basenames without extensions
+        local -a names=()
+        for f in "${video_files[@]}"; do
+            local base=$(basename -- "$f")
+            names+=("${base%.*}")
+        done
 
-    # Set the stack filter based on direction
-    if [ "$direction" == "h" ]; then
-        stack_filter="hstack=2"
-        scale_filter="[1:v][0:v]scale2ref=oh*mdar:ih[1v][ref1]"
+        # Find common prefix across all files
+        local common_prefix="${names[0]}"
+        for name in "${names[@]:1}"; do
+            local new_prefix=""
+            local min_len=${#common_prefix}
+            [ ${#name} -lt $min_len ] && min_len=${#name}
+            for ((i=0; i<min_len; i++)); do
+                if [ "${common_prefix:$i:1}" == "${name:$i:1}" ]; then
+                    new_prefix="${new_prefix}${common_prefix:$i:1}"
+                else
+                    break
+                fi
+            done
+            common_prefix="$new_prefix"
+        done
+
+        # Build output name
+        if [ -n "$common_prefix" ]; then
+            # Remove trailing underscores/dashes
+            common_prefix="${common_prefix%%[_-]}"
+            output_name="$common_prefix"
+        else
+            output_name="stacked_${num_videos}"
+        fi
+
+        # Add direction suffix
+        if [ "$direction" == "h" ]; then
+            output_path="${dir1}/${output_name}_hstack.mp4"
+        else
+            output_path="${dir1}/${output_name}_vstack.mp4"
+        fi
+        echo "Auto-generated output: $output_path"
     else
-        stack_filter="vstack=2"
-        scale_filter="[1:v][0:v]scale2ref=iw:iw/mdar[1v][ref1]"
+        # Handle output format if provided without extension
+        if [[ ! "$output_path" =~ \.[a-zA-Z0-9]+$ ]]; then
+            output_path="${output_path}.mp4"
+        fi
     fi
 
-    # This filter complex will:
-    # 1. Scale the second video to match either height (for horizontal) or width (for vertical) of the first video
-    # 2. Stack them according to the specified direction
-    # 3. Ensure the final dimensions are even numbers (required for some codecs)
-    ffmpeg -i ${fullfile_1} -i ${fullfile_2} -filter_complex \
-        "${scale_filter};[ref1][1v]${stack_filter},scale='2*trunc(iw/2)':'2*trunc(ih/2)'" \
-        "${output_path}"
-}
-
-ffmpeg_stack_three_videos() {
-    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-        echo -e "Usage: ffmpeg_stack_three_videos [file_1] [file_2] [file_3] [output_file] [-d direction]"
-        echo -e "\nStack three videos either horizontally or vertically"
-        echo -e "\nOptions:"
-        echo -e "  -d    Direction to stack: h (horizontal) or v (vertical). Default: h"
-        echo -e "\nExamples:"
-        echo -e "  ffmpeg_stack_three_videos v1.mp4 v2.mp4 v3.mp4 output.mp4 -d h  # Stack horizontally"
-        echo -e "  ffmpeg_stack_three_videos v1.mp4 v2.mp4 v3.mp4 output.mp4 -d v  # Stack vertically"
-        echo -e "  ffmpeg_stack_three_videos v1.mp4 v2.mp4 v3.mp4 output          # Stack horizontally, auto-adds .mp4"
-        return
-    fi
-
-    # Check if we have at least 4 arguments
-    if [ $# -lt 4 ]; then
-        echo "Error: Not enough arguments"
-        echo "Run 'ffmpeg_stack_three_videos --help' for usage information"
-        return 1
-    fi
-
-    fullfile_1=$1
-    fullfile_2=$2
-    fullfile_3=$3
-    output_path=$4
-    direction="h"  # Default to horizontal
-
-    # Parse optional arguments
-    shift 4
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -d)
-                direction="$2"
-                shift 2
-                ;;
-            *)
-                echo "Unknown option: $1"
-                return 1
-                ;;
-        esac
+    # Build ffmpeg input arguments
+    local input_args=""
+    for f in "${video_files[@]}"; do
+        input_args="${input_args} -i \"${f}\""
     done
 
-    # Validate direction parameter
-    if [ "$direction" != "h" ] && [ "$direction" != "v" ]; then
-        echo "Error: direction must be either 'h' (horizontal) or 'v' (vertical)"
-        return 1
-    fi
-
-    # Handle output format
-    if [[ ! "$output_path" =~ \.[a-zA-Z0-9]+$ ]]; then
-        output_path="${output_path}.mp4"
-    fi
-
-    # Set the stack filter based on direction
+    # Build scale filter chain
+    # For horizontal: scale to match height, preserve aspect ratio
+    # For vertical: scale to match width, preserve aspect ratio
+    local scale_filter=""
+    local scale_expr
     if [ "$direction" == "h" ]; then
-        stack_filter="hstack=3"
-        scale_filter="[1:v][0:v]scale2ref=oh*mdar:ih[1v][ref1];[2:v][ref1]scale2ref=oh*mdar:ih[2v][ref2]"
+        scale_expr="oh*mdar:ih"
     else
-        stack_filter="vstack=3"
-        scale_filter="[1:v][0:v]scale2ref=iw:iw/mdar[1v][ref1];[2:v][ref1]scale2ref=iw:iw/mdar[2v][ref2]"
+        scale_expr="iw:iw/mdar"
     fi
 
-    # This filter complex will:
-    # 1. Scale the second and third videos to match either height (for horizontal) or width (for vertical) of the first video
-    # 2. Stack them according to the specified direction
-    # 3. Ensure the final dimensions are even numbers (required for some codecs)
-    ffmpeg -i ${fullfile_1} -i ${fullfile_2} -i ${fullfile_3} -filter_complex \
-        "${scale_filter};[ref2][1v][2v]${stack_filter},scale='2*trunc(iw/2)':'2*trunc(ih/2)'" \
-        "${output_path}"
+    # First video (index 1) scales relative to video 0
+    scale_filter="[1:v][0:v]scale2ref=${scale_expr}[1v][ref1]"
+
+    # Subsequent videos scale relative to the previous reference
+    for ((i=2; i<num_videos; i++)); do
+        local prev=$((i-1))
+        scale_filter="${scale_filter};[${i}:v][ref${prev}]scale2ref=${scale_expr}[${i}v][ref${i}]"
+    done
+
+    # Build the stack input labels: [refN-1][1v][2v]...[Nv]
+    local last_ref=$((num_videos-1))
+    local stack_inputs="[ref${last_ref}]"
+    for ((i=1; i<num_videos; i++)); do
+        stack_inputs="${stack_inputs}[${i}v]"
+    done
+
+    # Stack filter
+    local stack_type
+    if [ "$direction" == "h" ]; then
+        stack_type="hstack"
+    else
+        stack_type="vstack"
+    fi
+
+    # Complete filter complex
+    local filter_complex="${scale_filter};${stack_inputs}${stack_type}=inputs=${num_videos},scale='2*trunc(iw/2)':'2*trunc(ih/2)'[v]"
+
+    # Execute ffmpeg
+    echo "Stacking ${num_videos} videos ${direction}..."
+    eval ffmpeg ${input_args} -filter_complex \
+        "\"${filter_complex}\"" \
+        -map '"[v]"' -map '"0:a?"' \
+        -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p \
+        -c:a aac -b:a 192k \
+        "\"${output_path}\""
 }
 
 ffmpeg_all() {
@@ -1080,6 +1677,124 @@ ffmpeg_chop_video_batch() {
         echo "No matching files found in '$folder' with pattern '$pattern'"
     else
         echo -e "\n=== Batch complete: processed $processed video(s) ==="
+    fi
+}
+
+extract_first_last_frames() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: extract_first_last_frames [folder] [OPTIONS]"
+        echo -e "\nRecursively extracts the first and last frame from all videos in a folder."
+        echo -e "\nArguments:"
+        echo -e "  [folder]              Folder to search. Defaults to current directory."
+        echo -e "\nOptions:"
+        echo -e "  --pattern PATTERN     Glob pattern for files to include (default: *.mp4)"
+        echo -e "  --exclude PATTERN     Glob pattern for files to exclude"
+        echo -e "  --dry-run, -n         Show what would be done without extracting"
+        echo -e "\nOutput files:"
+        echo -e "  <video_name>_t0.png   First frame of the video"
+        echo -e "  <video_name>_tf.png   Last frame of the video"
+        echo -e "\nExamples:"
+        echo -e "  extract_first_last_frames                           # All mp4s in current dir"
+        echo -e "  extract_first_last_frames /path/to/videos           # All mp4s in specified dir"
+        echo -e "  extract_first_last_frames . --pattern '*.mov'       # Process mov files"
+        echo -e "  extract_first_last_frames . --exclude '*_debug*'    # Exclude debug videos"
+        echo -e "  extract_first_last_frames . --dry-run               # Preview without extracting"
+        return
+    fi
+
+    local folder="${1:-.}"
+    local pattern="*.mp4"
+    local exclude=""
+    local dry_run=false
+
+    # Shift past folder argument if provided
+    if [[ $# -gt 0 && "$1" != --* && "$1" != "-n" ]]; then
+        shift
+    fi
+
+    # Parse optional arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --pattern)
+                pattern="$2"
+                shift 2
+                ;;
+            --exclude)
+                exclude="$2"
+                shift 2
+                ;;
+            -n|--dry-run)
+                dry_run=true
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                echo "Use --help for usage information"
+                return 1
+                ;;
+        esac
+    done
+
+    # Check if the specified folder exists
+    if [ ! -d "$folder" ]; then
+        echo "Error: Folder '$folder' does not exist."
+        return 1
+    fi
+
+    # Find matching files recursively
+    local count=0
+    local processed=0
+
+    while IFS= read -r -d '' video; do
+        local basename_video=$(basename "$video")
+
+        # Skip if matches exclude pattern
+        if [[ -n "$exclude" ]]; then
+            if [[ "$basename_video" == $exclude ]]; then
+                echo "Skipping (excluded): $video"
+                continue
+            fi
+        fi
+
+        ((count++))
+
+        # Get directory and filename without extension
+        local directory=$(dirname "$video")
+        local filename="${basename_video%.*}"
+
+        local output_t0="${directory}/${filename}_t0.png"
+        local output_tf="${directory}/${filename}_tf.png"
+
+        if [[ "$dry_run" == true ]]; then
+            echo "[DRY RUN] Would extract from: $video"
+            echo "          -> $output_t0"
+            echo "          -> $output_tf"
+        else
+            echo "Processing: $video"
+
+            # Extract first frame (t=0)
+            # Note: < /dev/null prevents ffmpeg from consuming stdin (which breaks the while read loop)
+            ffmpeg -y -loglevel error -i "$video" -vf "select=eq(n\,0)" -vframes 1 "$output_t0" < /dev/null
+
+            # Get total frame count and extract last frame
+            local total_frames=$(ffprobe -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -of default=noprint_wrappers=1:nokey=1 "$video" < /dev/null)
+            local last_frame=$((total_frames - 1))
+
+            ffmpeg -y -loglevel error -i "$video" -vf "select=eq(n\,$last_frame)" -vframes 1 "$output_tf" < /dev/null
+
+            echo "  -> Created: ${filename}_t0.png, ${filename}_tf.png"
+            ((processed++))
+        fi
+    done < <(find "$folder" -type f -name "$pattern" -print0)
+
+    if [[ $count -eq 0 ]]; then
+        echo "No matching files found in '$folder' with pattern '$pattern'"
+    else
+        if [[ "$dry_run" == true ]]; then
+            echo -e "\nFound $count video(s) that would be processed"
+        else
+            echo -e "\n=== Complete: processed $processed video(s) ==="
+        fi
     fi
 }
 
