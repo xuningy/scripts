@@ -2256,3 +2256,55 @@ ffmpeg_concatenate() {
         return $exit_code
     fi
 }
+
+ffmpeg_gif_to_video() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_gif_to_video <input.gif> [input2.gif] [input3.gif] ..."
+        echo -e "\nConverts GIF(s) to MP4 video using yuv420p pixel format with faststart."
+        echo -e "Output filename matches input (e.g., anim.gif -> anim.mp4)."
+        echo -e "\nExamples:"
+        echo -e "  ffmpeg_gif_to_video animation.gif"
+        echo -e "  ffmpeg_gif_to_video a.gif b.gif c.gif"
+        echo -e "  ffmpeg_gif_to_video *.gif"
+        return 0
+    fi
+
+    if [ $# -eq 0 ]; then
+        echo "Error: No input file(s) specified"
+        echo "Usage: ffmpeg_gif_to_video <input.gif> [input2.gif] ..."
+        return 1
+    fi
+
+    local total=$#
+    local current=0
+    local failed=0
+
+    for input in "$@"; do
+        ((current++))
+
+        if [ ! -f "$input" ]; then
+            echo "[$current/$total] Skipping '$input': file not found"
+            ((failed++))
+            continue
+        fi
+
+        local directory=$(dirname -- "$input")
+        local basename=$(basename -- "$input")
+        local name="${basename%.*}"
+        local output="${directory}/${name}.mp4"
+
+        echo "[$current/$total] Converting: $input -> $output"
+        ffmpeg -i "$input" -movflags faststart -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" "$output"
+
+        if [ $? -eq 0 ]; then
+            echo "[$current/$total] Done: $output"
+        else
+            echo "[$current/$total] Failed: $input"
+            ((failed++))
+        fi
+    done
+
+    if [ $total -gt 1 ]; then
+        echo "Processed $total file(s), $failed failure(s)."
+    fi
+}
