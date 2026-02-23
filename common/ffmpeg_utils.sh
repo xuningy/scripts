@@ -171,39 +171,44 @@ ffmpeg_crf() {
 
 ffmpeg_speed() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-        echo -e "Usage: ffmpeg_speed [filename_with_ext] [speed]X [OPTIONS]"
+        echo -e "Usage: ffmpeg_speed -s SPEED [OPTIONS] <input> [input2] [input3] ..."
         echo -e "\nAdjusts video playback speed and adds a speed label overlay."
         echo -e "\nArguments:"
-        echo -e "  [filename_with_ext]   Input video file"
-        echo -e "  [speed]              Speed multiplier (default: 1). Example: 2 for 2x speed, 0.5 for 0.5x"
+        echo -e "  <input>               Video file(s) or folder(s) containing videos"
         echo -e "\nOptions:"
+        echo -e "  -s, --speed SPEED     Speed multiplier (required). Example: 2 for 2x, 0.5 for 0.5x"
         echo -e "  --label-pos POSITION  Label position: top-left, top-right, bottom-left, bottom-right,"
         echo -e "                        center-left, center-right, top-center, bottom-center, center (default: top-left)"
         echo -e "  --label-color COLOR   Label text color: white or black (default: white)"
         echo -e "  --no-label            Disable speed label overlay"
+        echo -e "  --pattern PATTERN     Glob pattern for files when input is a folder (default: *.mp4)"
+        echo -e "  --exclude PATTERN     Glob pattern to exclude files"
         echo -e "\nExamples:"
-        echo -e "  ffmpeg_speed video.mp4 2                                      # 2x speed with default white label"
-        echo -e "  ffmpeg_speed video.mp4 2 --label-pos bottom-right             # 2x speed, label at bottom-right"
-        echo -e "  ffmpeg_speed video.mp4 0.5 --label-pos top-center             # 0.5x speed, label at top-center"
-        echo -e "  ffmpeg_speed video.mp4 2 --label-color black                  # 2x speed with black text"
-        echo -e "  ffmpeg_speed video.mp4 2 --label-pos bottom-left --label-color black  # Black text at bottom-left"
-        echo -e "  ffmpeg_speed video.mp4 2 --no-label                           # 2x speed, no label"
+        echo -e "  ffmpeg_speed -s 2 video.mp4                                   # 2x speed"
+        echo -e "  ffmpeg_speed -s 2 video1.mp4 video2.mp4                       # Multiple files"
+        echo -e "  ffmpeg_speed -s 2 *.mp4                                       # Shell glob"
+        echo -e "  ffmpeg_speed -s 2 /path/to/videos                             # All mp4s in folder"
+        echo -e "  ffmpeg_speed -s 2 /path/to/videos --pattern '*.mov'           # All movs in folder"
+        echo -e "  ffmpeg_speed -s 2 . --exclude '*_2X.*'                        # Exclude already sped up"
+        echo -e "  ffmpeg_speed -s 2 --label-pos bottom-right video.mp4          # With label options"
+        echo -e "  ffmpeg_speed -s 0.5 --no-label *.mp4                          # 0.5x speed, no label"
         return
     fi
 
-    # Parse arguments
-    fullfile=$1
-    speed=${2:-1}
-    label_pos="top-left"
-    label_color="white"
-    show_label=true
+    local speed=""
+    local label_pos="top-left"
+    local label_color="white"
+    local show_label=true
+    local pattern="*.mp4"
+    local exclude=""
+    local -a inputs=()
 
-    # Shift past filename and speed
-    shift 2
-
-    # Parse optional arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
+            -s|--speed)
+                speed="$2"
+                shift 2
+                ;;
             --label-pos)
                 label_pos="$2"
                 shift 2
@@ -216,13 +221,37 @@ ffmpeg_speed() {
                 show_label=false
                 shift
                 ;;
-            *)
+            --pattern)
+                pattern="$2"
+                shift 2
+                ;;
+            --exclude)
+                exclude="$2"
+                shift 2
+                ;;
+            -*)
                 echo "Unknown option: $1"
                 echo "Use --help for usage information"
                 return 1
                 ;;
+            *)
+                inputs+=("$1")
+                shift
+                ;;
         esac
     done
+
+    if [ -z "$speed" ]; then
+        echo "Error: -s/--speed is required"
+        echo "Usage: ffmpeg_speed -s SPEED [OPTIONS] <input> [input2] ..."
+        return 1
+    fi
+
+    if [ ${#inputs[@]} -eq 0 ]; then
+        echo "Error: No input file(s) or folder(s) specified"
+        echo "Usage: ffmpeg_speed -s SPEED [OPTIONS] <input> [input2] ..."
+        return 1
+    fi
 
     # Validate label color
     if [ "$label_color" != "white" ] && [ "$label_color" != "black" ]; then
@@ -230,25 +259,11 @@ ffmpeg_speed() {
         return 1
     fi
 
-    filename=$(basename -- "$fullfile")
-    directory=$(dirname -- "$fullfile")
-    extension="${filename##*.}"
-    filename="${filename%.*}"
-
-    # Get video dimensions
-    video_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$fullfile")
-
-    # Calculate font size as 20% of video height
-    font_size=$(awk "BEGIN{printf \"%.0f\", $video_height * 0.1}")
-
-    # Build the filter chain
-    local video_filter="setpts=PTS/${speed}"
+    # Resolve label position to ffmpeg expressions (shared across all files)
+    local text_x
+    local text_y
 
     if [ "$show_label" = true ]; then
-        # Determine text position based on label_pos
-        local text_x
-        local text_y
-
         case "$label_pos" in
             top-left)
                 text_x="40"
@@ -293,13 +308,61 @@ ffmpeg_speed() {
                 return 1
                 ;;
         esac
-
-        # Add drawtext filter with speed label (Arial font, no background)
-        video_filter="${video_filter},drawtext=text='${speed}x':x=${text_x}:y=${text_y}:fontcolor=${label_color}:fontsize=${font_size}:font=Arial"
     fi
 
-    # Apply speed filter and optionally add label
-    ffmpeg -i ${fullfile} -filter:v "${video_filter}" -filter:a "atempo=${speed}" "${directory}/${filename}_${speed}X.${extension}"
+    # Expand directories into file lists
+    local -a files=()
+    for input in "${inputs[@]}"; do
+        if [ -d "$input" ]; then
+            for f in "$input"/$pattern; do
+                [[ -e "$f" ]] || continue
+                if [[ -n "$exclude" ]]; then
+                    local base=$(basename "$f")
+                    [[ "$base" == $exclude ]] && continue
+                fi
+                files+=("$f")
+            done
+        elif [ -f "$input" ]; then
+            if [[ -n "$exclude" ]]; then
+                local base=$(basename "$input")
+                [[ "$base" == $exclude ]] && continue
+            fi
+            files+=("$input")
+        else
+            echo "Warning: '$input' is not a valid file or directory, skipping"
+        fi
+    done
+
+    if [ ${#files[@]} -eq 0 ]; then
+        echo "No matching files found"
+        return 1
+    fi
+
+    local total=${#files[@]}
+    local current=0
+
+    for fullfile in "${files[@]}"; do
+        ((current++))
+        [ $total -gt 1 ] && echo -e "\n=== Processing ($current/$total): $fullfile ==="
+
+        local filename=$(basename -- "$fullfile")
+        local directory=$(dirname -- "$fullfile")
+        local extension="${filename##*.}"
+        filename="${filename%.*}"
+
+        local video_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$fullfile")
+        local font_size=$(awk "BEGIN{printf \"%.0f\", $video_height * 0.1}")
+
+        local video_filter="setpts=PTS/${speed}"
+
+        if [ "$show_label" = true ]; then
+            video_filter="${video_filter},drawtext=text='${speed}x':x=${text_x}:y=${text_y}:fontcolor=${label_color}:fontsize=${font_size}:font=Arial"
+        fi
+
+        ffmpeg -i "$fullfile" -filter:v "${video_filter}" -filter:a "atempo=${speed}" "${directory}/${filename}_${speed}X.${extension}"
+    done
+
+    [ $total -gt 1 ] && echo -e "\n=== Done: processed $total file(s) ==="
 }
 
 ffmpeg_caption() {
@@ -562,45 +625,51 @@ ffmpeg_caption() {
 }
 
 ffmpeg_video_to_gif_batch() {
-    # Check for help flag
-    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-        echo -e "Usage: ffmpeg_video_to_gif_batch [folder] [--fps N] [--width W | --height H]"
-        echo -e "\nBatch converts all .mp4 videos in the specified folder to GIFs using ffmpeg."
-        echo -e "\nOptions:"
-        echo -e "  [folder]     Folder containing MP4 files. Defaults to current directory."
-        echo -e "  --fps N      Frames per second for the GIF. Default: 30"
-        echo -e "  --width W    Width of the output GIF (height auto-scales)"
-        echo -e "  --height H   Height of the output GIF (width auto-scales)"
-        echo -e "\nExample usage:"
-        echo -e "  ffmpeg_video_to_gif_batch                              # Current dir, 30 fps, original size"
-        echo -e "  ffmpeg_video_to_gif_batch videos                       # 'videos' dir, 30 fps, original size"
-        echo -e "  ffmpeg_video_to_gif_batch videos --fps 24 --width 480  # 24 fps, 480px wide"
-        echo -e "  ffmpeg_video_to_gif_batch --fps 15 --height 360        # Current dir, 15 fps, 360px tall"
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        echo "Usage: ffmpeg_video_to_gif_batch [OPTIONS] [folder]"
+        echo "Batch converts all .mp4 videos in the specified folder to GIFs using ffmpeg."
+        echo
+        echo "Options:"
+        echo "  -f, --fps N      Frames per second for the GIF (default: 30)"
+        echo "  -w, --width W    Width of the output GIF (height auto-scales)"
+        echo "  -H, --height H   Height of the output GIF (width auto-scales)"
+        echo "  -h, --help       Show this help message and exit"
+        echo
+        echo "Arguments:"
+        echo "  [folder]         Folder containing MP4 files (default: current directory)"
+        echo
+        echo "Examples:"
+        echo "  ffmpeg_video_to_gif_batch                       # Current dir, 30 fps, original size"
+        echo "  ffmpeg_video_to_gif_batch videos                # 'videos' dir, 30 fps, original size"
+        echo "  ffmpeg_video_to_gif_batch -f 24 -w 480 videos   # 24 fps, 480px wide"
+        echo "  ffmpeg_video_to_gif_batch -f 15 -H 360          # Current dir, 15 fps, 360px tall"
         return 0
     fi
 
+    # Default values
     local folder="."
     local fps=""
     local width=""
     local height=""
 
-    # Parse arguments
+    # Parse options
     while [[ $# -gt 0 ]]; do
-        case $1 in
-            --fps)
+        case "$1" in
+            -f|--fps)
                 fps="$2"
                 shift 2
                 ;;
-            --width)
+            -w|--width)
                 width="$2"
                 shift 2
                 ;;
-            --height)
+            -H|--height)
                 height="$2"
                 shift 2
                 ;;
             -*)
                 echo "Unknown option: $1"
+                echo "Run 'ffmpeg_video_to_gif_batch -h' for usage information"
                 return 1
                 ;;
             *)
@@ -627,65 +696,64 @@ ffmpeg_video_to_gif_batch() {
 
     # Build args to pass to ffmpeg_video_to_gif
     local extra_args=""
-    [ -n "$fps" ] && extra_args="$extra_args --fps $fps"
-    [ -n "$width" ] && extra_args="$extra_args --width $width"
-    [ -n "$height" ] && extra_args="$extra_args --height $height"
+    [ -n "$fps" ] && extra_args="$extra_args -f $fps"
+    [ -n "$width" ] && extra_args="$extra_args -w $width"
+    [ -n "$height" ] && extra_args="$extra_args -H $height"
 
     # Process each .mp4 file
     for video in $mp4_files; do
         echo "Processing: $video"
-        ffmpeg_video_to_gif "$video" $extra_args
+        ffmpeg_video_to_gif $extra_args "$video"
     done
 
     echo "All videos have been processed."
 }
 
 ffmpeg_video_to_gif() {
-    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-        echo -e "Usage: ffmpeg_video_to_gif <input_video> [--fps N] [--width W | --height H]"
-        echo -e "\nConverts a video to a high-quality GIF using ffmpeg."
-        echo -e "\nOptions:"
-        echo -e "  --fps N      Frames per second for the GIF. Default: 30"
-        echo -e "  --width W    Width of the output GIF (height auto-scales)"
-        echo -e "  --height H   Height of the output GIF (width auto-scales)"
-        echo -e "\nIf neither --width nor --height is specified, uses original video dimensions."
-        echo -e "\nExample usage:"
-        echo -e "  ffmpeg_video_to_gif video.mp4                       # 30 fps, original size"
-        echo -e "  ffmpeg_video_to_gif video.mp4 --fps 24              # 24 fps, original size"
-        echo -e "  ffmpeg_video_to_gif video.mp4 --fps 15 --width 480  # 15 fps, 480px wide"
-        echo -e "  ffmpeg_video_to_gif video.mp4 --height 360          # 30 fps, 360px tall"
-        return
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        echo "Usage: ffmpeg_video_to_gif [OPTIONS] <input_video>"
+        echo "Converts a video to a high-quality GIF using ffmpeg."
+        echo
+        echo "Options:"
+        echo "  -f, --fps N      Frames per second for the GIF (default: 30)"
+        echo "  -w, --width W    Width of the output GIF (height auto-scales)"
+        echo "  -H, --height H   Height of the output GIF (width auto-scales)"
+        echo "  -h, --help       Show this help message and exit"
+        echo
+        echo "If neither --width nor --height is specified, uses original video dimensions."
+        echo
+        echo "Examples:"
+        echo "  ffmpeg_video_to_gif video.mp4                    # 30 fps, original size"
+        echo "  ffmpeg_video_to_gif -f 24 video.mp4              # 24 fps, original size"
+        echo "  ffmpeg_video_to_gif -f 15 -w 480 video.mp4       # 15 fps, 480px wide"
+        echo "  ffmpeg_video_to_gif --height 360 video.mp4       # 30 fps, 360px tall"
+        return 0
     fi
 
-    # Check for at least one argument (the input file)
-    if [ $# -lt 1 ]; then
-        echo "Error: Input video file required"
-        echo "Run 'ffmpeg_video_to_gif --help' for usage information"
-        return 1
-    fi
-
+    # Default values
     local fullfile=""
     local fps=30
     local width=""
     local height=""
 
-    # Parse arguments
+    # Parse options
     while [[ $# -gt 0 ]]; do
-        case $1 in
-            --fps)
+        case "$1" in
+            -f|--fps)
                 fps="$2"
                 shift 2
                 ;;
-            --width)
+            -w|--width)
                 width="$2"
                 shift 2
                 ;;
-            --height)
+            -H|--height)
                 height="$2"
                 shift 2
                 ;;
             -*)
                 echo "Unknown option: $1"
+                echo "Run 'ffmpeg_video_to_gif -h' for usage information"
                 return 1
                 ;;
             *)
@@ -700,8 +768,10 @@ ffmpeg_video_to_gif() {
         esac
     done
 
+    # Check for required input file
     if [ -z "$fullfile" ]; then
         echo "Error: Input video file required"
+        echo "Run 'ffmpeg_video_to_gif -h' for usage information"
         return 1
     fi
 
@@ -805,27 +875,37 @@ ffmpeg_img_to_gif() {
 
 ffmpeg_cut() {
     if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-        echo -e "Usage: ffmpeg_cut <input_video> -s TIME [-d TIME | -e TIME]"
-        echo -e "\nCuts a portion of a video."
+        echo -e "Usage: ffmpeg_cut [OPTIONS] -s TIME [-d TIME | -e TIME] <input> [input2] [input3] ..."
+        echo -e "\nCuts a portion of video(s). The same cut parameters are applied to all inputs."
+        echo -e "\nArguments:"
+        echo -e "  <input>               Video file(s) or folder(s) containing videos"
         echo -e "\nOptions:"
         echo -e "  -s, --start TIME      Start time (required). Format: seconds or HH:MM:SS"
         echo -e "  -d, --duration TIME   Duration of the cut. Format: seconds or HH:MM:SS"
         echo -e "  -e, --end TIME        End time (alternative to --duration). Format: seconds or HH:MM:SS"
+        echo -e "  --pattern PATTERN     Glob pattern for files when input is a folder (default: *.mp4)"
+        echo -e "  --exclude PATTERN     Glob pattern to exclude files"
         echo -e "\nIf neither --duration nor --end is specified, cuts to the end of video."
-        echo -e "\nExample usage:"
-        echo -e "  ffmpeg_cut video.mp4 -s 10 -d 30          # Cut 30s starting at 10s"
-        echo -e "  ffmpeg_cut video.mp4 -s 10 -e 40          # Cut from 10s to 40s"
-        echo -e "  ffmpeg_cut video.mp4 -s 1:30 -e 2:00      # Cut from 1:30 to 2:00"
-        echo -e "  ffmpeg_cut video.mp4 --start 10           # Cut from 10s to end"
+        echo -e "\nExamples:"
+        echo -e "  ffmpeg_cut video.mp4 -s 10 -d 30                             # Cut 30s starting at 10s"
+        echo -e "  ffmpeg_cut video.mp4 -s 10 -e 40                             # Cut from 10s to 40s"
+        echo -e "  ffmpeg_cut video.mp4 -s 1:30 -e 2:00                         # Cut from 1:30 to 2:00"
+        echo -e "  ffmpeg_cut video.mp4 --start 10                              # Cut from 10s to end"
+        echo -e "  ffmpeg_cut -s 10 -d 30 video1.mp4 video2.mp4                 # Multiple files"
+        echo -e "  ffmpeg_cut -s 10 -d 30 *.mp4                                 # Shell glob"
+        echo -e "  ffmpeg_cut -s 10 -d 30 /path/to/videos                       # All mp4s in folder"
+        echo -e "  ffmpeg_cut -s 5 -e 20 /path/to/videos --pattern '*.mov'      # All movs in folder"
+        echo -e "  ffmpeg_cut -s 0 -d 10 . --exclude '*_cut_*'                  # Exclude already cut"
         return
     fi
 
-    local fullfile=""
     local start_time=""
     local duration=""
     local end_time=""
+    local pattern="*.mp4"
+    local exclude=""
+    local -a inputs=()
 
-    # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
             -s|--start)
@@ -840,25 +920,28 @@ ffmpeg_cut() {
                 end_time="$2"
                 shift 2
                 ;;
+            --pattern)
+                pattern="$2"
+                shift 2
+                ;;
+            --exclude)
+                exclude="$2"
+                shift 2
+                ;;
             -*)
                 echo "Unknown option: $1"
+                echo "Use --help for usage information"
                 return 1
                 ;;
             *)
-                if [ -z "$fullfile" ]; then
-                    fullfile="$1"
-                else
-                    echo "Error: Multiple input files not supported"
-                    return 1
-                fi
+                inputs+=("$1")
                 shift
                 ;;
         esac
     done
 
-    # Validate required arguments
-    if [ -z "$fullfile" ]; then
-        echo "Error: Input video file required"
+    if [ ${#inputs[@]} -eq 0 ]; then
+        echo "Error: No input file(s) or folder(s) specified"
         echo "Run 'ffmpeg_cut --help' for usage information"
         return 1
     fi
@@ -874,12 +957,7 @@ ffmpeg_cut() {
         return 1
     fi
 
-    local filename=$(basename -- "$fullfile")
-    local directory=$(dirname -- "$fullfile")
-    local extension="${filename##*.}"
-    filename="${filename%.*}"
-
-    # Build ffmpeg arguments
+    # Build shared ffmpeg duration arguments and output suffix
     local duration_args=""
     local output_suffix=""
 
@@ -890,12 +968,53 @@ ffmpeg_cut() {
         duration_args="-to ${end_time}"
         output_suffix="_cut_${start_time}-${end_time}"
     else
-        # No duration or end specified - cut to end of video
-        local total_duration=$(ffprobe -i "$fullfile" -show_entries format=duration -v quiet -of csv="p=0")
         output_suffix="_cut_from${start_time}s"
     fi
 
-    ffmpeg -ss "${start_time}" ${duration_args} -i "${fullfile}" -c copy "${directory}/${filename}${output_suffix}.${extension}"
+    # Expand directories into file lists
+    local -a files=()
+    for input in "${inputs[@]}"; do
+        if [ -d "$input" ]; then
+            for f in "$input"/$pattern; do
+                [[ -e "$f" ]] || continue
+                if [[ -n "$exclude" ]]; then
+                    local base=$(basename "$f")
+                    [[ "$base" == $exclude ]] && continue
+                fi
+                files+=("$f")
+            done
+        elif [ -f "$input" ]; then
+            if [[ -n "$exclude" ]]; then
+                local base=$(basename "$input")
+                [[ "$base" == $exclude ]] && continue
+            fi
+            files+=("$input")
+        else
+            echo "Warning: '$input' is not a valid file or directory, skipping"
+        fi
+    done
+
+    if [ ${#files[@]} -eq 0 ]; then
+        echo "No matching files found"
+        return 1
+    fi
+
+    local total=${#files[@]}
+    local current=0
+
+    for fullfile in "${files[@]}"; do
+        ((current++))
+        [ $total -gt 1 ] && echo -e "\n=== Processing ($current/$total): $fullfile ==="
+
+        local filename=$(basename -- "$fullfile")
+        local directory=$(dirname -- "$fullfile")
+        local extension="${filename##*.}"
+        filename="${filename%.*}"
+
+        ffmpeg -ss "${start_time}" ${duration_args} -i "${fullfile}" -c copy "${directory}/${filename}${output_suffix}.${extension}"
+    done
+
+    [ $total -gt 1 ] && echo -e "\n=== Done: processed $total file(s) ==="
 }
 
 ffmpeg_img_to_video() {
@@ -1845,5 +1964,295 @@ rename_env_mp4() {
         else
             echo "Successfully renamed $count file(s)"
         fi
+    fi
+}
+
+ffmpeg_reverse() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_reverse [OPTIONS] <input> [input2] [input3] ..."
+        echo -e "\nReverses video(s) (and audio) so they play backwards."
+        echo -e "\nArguments:"
+        echo -e "  <input>               Video file(s) or folder(s) containing videos"
+        echo -e "\nOptions:"
+        echo -e "  --pattern PATTERN     Glob pattern for files when input is a folder (default: *.mp4)"
+        echo -e "  --exclude PATTERN     Glob pattern to exclude files"
+        echo -e "\nNote: This loads each video into memory, so it works best on shorter clips."
+        echo -e "      For long videos, consider cutting first with ffmpeg_cut."
+        echo -e "\nExamples:"
+        echo -e "  ffmpeg_reverse clip.mp4                              # Single file"
+        echo -e "  ffmpeg_reverse clip1.mp4 clip2.mp4                   # Multiple files"
+        echo -e "  ffmpeg_reverse *.mp4                                 # Shell glob"
+        echo -e "  ffmpeg_reverse /path/to/videos                       # All mp4s in folder"
+        echo -e "  ffmpeg_reverse /path/to/videos --pattern '*.mov'     # All movs in folder"
+        echo -e "  ffmpeg_reverse . --exclude '*_reversed.*'            # Exclude already reversed"
+        return
+    fi
+
+    local pattern="*.mp4"
+    local exclude=""
+    local -a inputs=()
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --pattern)
+                pattern="$2"
+                shift 2
+                ;;
+            --exclude)
+                exclude="$2"
+                shift 2
+                ;;
+            -*)
+                echo "Unknown option: $1"
+                echo "Use --help for usage information"
+                return 1
+                ;;
+            *)
+                inputs+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if [ ${#inputs[@]} -eq 0 ]; then
+        echo "Error: No input file(s) or folder(s) specified"
+        echo "Usage: ffmpeg_reverse [OPTIONS] <input> [input2] ..."
+        return 1
+    fi
+
+    local -a files=()
+    for input in "${inputs[@]}"; do
+        if [ -d "$input" ]; then
+            for f in "$input"/$pattern; do
+                [[ -e "$f" ]] || continue
+                if [[ -n "$exclude" ]]; then
+                    local base=$(basename "$f")
+                    [[ "$base" == $exclude ]] && continue
+                fi
+                files+=("$f")
+            done
+        elif [ -f "$input" ]; then
+            if [[ -n "$exclude" ]]; then
+                local base=$(basename "$input")
+                [[ "$base" == $exclude ]] && continue
+            fi
+            files+=("$input")
+        else
+            echo "Warning: '$input' is not a valid file or directory, skipping"
+        fi
+    done
+
+    if [ ${#files[@]} -eq 0 ]; then
+        echo "No matching files found"
+        return 1
+    fi
+
+    local total=${#files[@]}
+    local current=0
+
+    for fullfile in "${files[@]}"; do
+        ((current++))
+        [ $total -gt 1 ] && echo -e "\n=== Processing ($current/$total): $fullfile ==="
+
+        local filename=$(basename -- "$fullfile")
+        local directory=$(dirname -- "$fullfile")
+        local extension="${filename##*.}"
+        filename="${filename%.*}"
+
+        local output="${directory}/${filename}_reversed.${extension}"
+
+        local has_audio=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$fullfile" 2>/dev/null)
+
+        if [ -n "$has_audio" ]; then
+            ffmpeg -i "$fullfile" -vf reverse -af areverse "$output"
+        else
+            ffmpeg -i "$fullfile" -vf reverse "$output"
+        fi
+    done
+
+    [ $total -gt 1 ] && echo -e "\n=== Done: processed $total file(s) ==="
+}
+
+ffmpeg_concatenate() {
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+        echo -e "Usage: ffmpeg_concatenate [OPTIONS] <input> [input2] [input3] ..."
+        echo -e "\nConcatenates multiple videos into a single video in the order provided."
+        echo -e "\nArguments:"
+        echo -e "  <input>               Video file(s) or folder(s) containing videos"
+        echo -e "\nOptions:"
+        echo -e "  -o, --output FILE     Output file path (default: auto-generated from first input)"
+        echo -e "  -b, --buffer SECS     Insert a freeze-frame of the last frame between videos (default: 0.3s)"
+        echo -e "                        The freeze frame holds the last frame of each video for SECS seconds."
+        echo -e "  --pattern PATTERN     Glob pattern for files when input is a folder (default: *.mp4)"
+        echo -e "  --exclude PATTERN     Glob pattern to exclude files"
+        echo -e "\nNote: Without --buffer, all input videos should have the same codec, resolution,"
+        echo -e "      and frame rate. With --buffer, videos are re-encoded for compatibility."
+        echo -e "\nExamples:"
+        echo -e "  ffmpeg_concatenate clip1.mp4 clip2.mp4                          # Two files"
+        echo -e "  ffmpeg_concatenate clip1.mp4 clip2.mp4 -o merged.mp4            # Custom output name"
+        echo -e "  ffmpeg_concatenate -b 0.3 clip1.mp4 clip2.mp4                   # 0.3s freeze between clips"
+        echo -e "  ffmpeg_concatenate -b 1 *.mp4                                   # 1s freeze between all clips"
+        echo -e "  ffmpeg_concatenate /path/to/videos                              # All mp4s in folder"
+        echo -e "  ffmpeg_concatenate /path/to/videos --pattern 'scene_*.mp4'      # Pattern match"
+        echo -e "  ffmpeg_concatenate . --exclude '*_concatenated.*'               # Exclude already merged"
+        return
+    fi
+
+    local output=""
+    local buffer=""
+    local pattern="*.mp4"
+    local exclude=""
+    local -a inputs=()
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -o|--output)
+                output="$2"
+                shift 2
+                ;;
+            -b|--buffer)
+                buffer="${2:-0.3}"
+                shift 2
+                ;;
+            --pattern)
+                pattern="$2"
+                shift 2
+                ;;
+            --exclude)
+                exclude="$2"
+                shift 2
+                ;;
+            -*)
+                echo "Unknown option: $1"
+                echo "Use --help for usage information"
+                return 1
+                ;;
+            *)
+                inputs+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if [ ${#inputs[@]} -eq 0 ]; then
+        echo "Error: No input file(s) or folder(s) specified"
+        echo "Usage: ffmpeg_concatenate [OPTIONS] <input> [input2] ..."
+        return 1
+    fi
+
+    # Expand directories into file lists
+    local -a files=()
+    for input in "${inputs[@]}"; do
+        if [ -d "$input" ]; then
+            for f in "$input"/$pattern; do
+                [[ -e "$f" ]] || continue
+                if [[ -n "$exclude" ]]; then
+                    local base=$(basename "$f")
+                    [[ "$base" == $exclude ]] && continue
+                fi
+                files+=("$f")
+            done
+        elif [ -f "$input" ]; then
+            if [[ -n "$exclude" ]]; then
+                local base=$(basename "$input")
+                [[ "$base" == $exclude ]] && continue
+            fi
+            files+=("$input")
+        else
+            echo "Warning: '$input' is not a valid file or directory, skipping"
+        fi
+    done
+
+    if [ ${#files[@]} -lt 2 ]; then
+        echo "Error: Need at least 2 video files to concatenate (found ${#files[@]})"
+        return 1
+    fi
+
+    # Auto-generate output name if not provided
+    if [ -z "$output" ]; then
+        local first_file="${files[0]}"
+        local directory=$(dirname -- "$first_file")
+        local filename=$(basename -- "$first_file")
+        local extension="${filename##*.}"
+        filename="${filename%.*}"
+        output="${directory}/${filename}_concatenated.${extension}"
+    fi
+
+    echo "Concatenating ${#files[@]} files:"
+    for f in "${files[@]}"; do
+        echo "  $f"
+    done
+    [ -n "$buffer" ] && echo "Buffer: ${buffer}s freeze-frame between clips"
+    echo "Output: $output"
+
+    local listfile
+    listfile=$(mktemp)
+    local tmpdir=""
+    local exit_code=0
+
+    if [ -n "$buffer" ]; then
+        tmpdir=$(mktemp -d)
+        local idx=0
+
+        for f in "${files[@]}"; do
+            local abs_path
+            if [[ "$f" = /* ]]; then
+                abs_path="$f"
+            else
+                abs_path="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+            fi
+            echo "file '$abs_path'" >> "$listfile"
+
+            ((idx++))
+            local last_frame="${tmpdir}/frame_${idx}.jpg"
+            local buffer_video="${tmpdir}/buffer_${idx}.mp4"
+
+            local fps=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 "$f")
+            local width=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of default=noprint_wrappers=1:nokey=1 "$f")
+            local height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$f")
+            local has_audio=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$f" 2>/dev/null)
+
+            local total_frames=$(ffprobe -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -of default=noprint_wrappers=1:nokey=1 "$f")
+            local last_idx=$((total_frames - 1))
+            ffmpeg -i "$f" -vf "select=eq(n\,$last_idx)" -vframes 1 -q:v 2 "$last_frame" -y -hide_banner -loglevel quiet
+
+            if [ -n "$has_audio" ]; then
+                ffmpeg -loop 1 -i "$last_frame" -f lavfi -i anullsrc=r=44100:cl=stereo \
+                    -c:v libx264 -t "$buffer" -pix_fmt yuv420p -r "$fps" -s "${width}x${height}" \
+                    -c:a aac -shortest "$buffer_video" -y -hide_banner -loglevel quiet
+            else
+                ffmpeg -loop 1 -i "$last_frame" \
+                    -c:v libx264 -t "$buffer" -pix_fmt yuv420p -r "$fps" -s "${width}x${height}" \
+                    "$buffer_video" -y -hide_banner -loglevel quiet
+            fi
+
+            echo "file '$buffer_video'" >> "$listfile"
+        done
+
+        ffmpeg -f concat -safe 0 -i "$listfile" -c:v libx264 -crf 18 -c:a aac "$output"
+        exit_code=$?
+    else
+        for f in "${files[@]}"; do
+            local abs_path
+            if [[ "$f" = /* ]]; then
+                abs_path="$f"
+            else
+                abs_path="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+            fi
+            echo "file '$abs_path'" >> "$listfile"
+        done
+
+        ffmpeg -f concat -safe 0 -i "$listfile" -c copy "$output"
+        exit_code=$?
+    fi
+
+    rm -f "$listfile"
+    [ -n "$tmpdir" ] && rm -rf "$tmpdir"
+
+    if [ $exit_code -eq 0 ]; then
+        echo "Done: $output"
+    else
+        echo "Error: ffmpeg failed with exit code $exit_code"
+        return $exit_code
     fi
 }
