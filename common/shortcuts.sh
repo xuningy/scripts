@@ -252,3 +252,83 @@ flatten_folders() {
 
     echo "Flattening complete."
 }
+
+
+compress() {
+    local output=""
+    local inputs=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|-h)
+                echo "Usage:"
+                echo "  compress <file_or_folder>                        # output named after the input"
+                echo "  compress -o <output_name> <file1> <folder1> ...  # output name required for multiple inputs"
+                return 0
+                ;;
+            -o)
+                output="$2"
+                shift 2
+                ;;
+            *)
+                inputs+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if [ ${#inputs[@]} -eq 0 ]; then
+        echo "Error: No input files or folders provided."
+        echo "Run 'compress --help' for usage."
+        return 1
+    fi
+
+    if [ ${#inputs[@]} -eq 1 ] && [ -z "$output" ]; then
+        output="${inputs[0]%/}"
+    elif [ ${#inputs[@]} -gt 1 ] && [ -z "$output" ]; then
+        echo "Error: -o <output_name> is required when compressing multiple inputs."
+        echo "Run 'compress --help' for usage."
+        return 1
+    fi
+
+    output="${output%.zip}"
+
+    zip -r "${output}.zip" "${inputs[@]}"
+    echo "Created: ${output}.zip"
+}
+
+decompress() {
+    if [ -z "$1" ]; then
+        echo "Usage: decompress <file.zip> [-o <output_folder>]"
+        return 1
+    fi
+
+    local zipfile="$1"
+    local output=""
+
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -o)
+                output="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Default output folder = zip name without extension
+    if [ -z "$output" ]; then
+        output="${zipfile%.zip}"
+    fi
+
+    if [ ! -f "$zipfile" ]; then
+        echo "Error: '$zipfile' not found."
+        return 1
+    fi
+
+    unzip "$zipfile" -d "$output"
+    echo "Extracted to: $output/"
+}
